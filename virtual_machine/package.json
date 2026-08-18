@@ -1,0 +1,19 @@
+{
+  "name": "meeting-agent-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/join-meeting.ts",
+    "profile": "tsx src/profile.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "playwright": "^1.54.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "~5.7.0"
+  }
+}

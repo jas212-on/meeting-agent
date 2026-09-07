@@ -7,6 +7,10 @@ export const selectors = {
   IN_CALL: 'button[aria-label*="eave call"]',
   WAITING_ROOM: 'text=Waiting for host',
   ALONE: 'text=You\'re the only one here',
+
+  MIC_ON: 'button[aria-label*="Turn on microphone"]',
+  MIC_OFF: 'button[aria-label*="Turn off microphone"]',
+  CAMERA_ON: 'button[aria-label*="Turn off camera"]',
 } as const;
 
 export const joinButtonSelectors = [

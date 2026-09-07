@@ -1,9 +1,20 @@
+import path from "node:path";
+
 export interface Config {
   meetUrl: string;
   displayName?: string;
   profileDir: string;
   prejoinTimeoutMs: number;
   admissionTimeoutMs: number;
+
+  svclPath: string;
+  cableInputName: string;
+  cableOutputName: string;
+
+  vapiKey?: string;
+  assistantId?: string;
+  noVapi: boolean;
+  bridgePort: number;
 }
 
 const MEET_URL_RE = /^https:\/\/meet\.google\.com\/[\w-]+(\/|\?|#|$)/i;
@@ -23,6 +34,11 @@ export function parseConfig(argv: string[]): Config {
     getValue("--name") ?? process.env.DISPLAY_NAME ?? undefined;
   const profileDir =
     getValue("--profile") ?? process.env.PROFILE_DIR ?? "profiles/meet";
+  const svclPath =
+    getValue("--svcl") ?? process.env.SVCL_PATH ?? path.resolve("tools", "svcl.exe");
+  const vapiKey = process.env.VAPI_PRIVATE_KEY || undefined;
+  const assistantId = process.env.VAPI_ASSISTANT_ID || undefined;
+  const noVapi = args.includes("--no-vapi") || process.env.NO_VAPI === "1";
 
   if (!meetUrl) {
     throw new Error(
@@ -41,6 +57,17 @@ export function parseConfig(argv: string[]): Config {
     profileDir,
     prejoinTimeoutMs: 60_000,
     admissionTimeoutMs: 90_000,
+
+    svclPath,
+    cableInputName:
+      process.env.CABLE_INPUT_NAME ?? "CABLE Input (VB-Audio Virtual Cable)",
+    cableOutputName:
+      process.env.CABLE_OUTPUT_NAME ?? "CABLE Output (VB-Audio Virtual Cable)",
+
+    vapiKey,
+    assistantId,
+    noVapi,
+    bridgePort: Number(process.env.BRIDGE_PORT ?? 4711),
   };
 }
 

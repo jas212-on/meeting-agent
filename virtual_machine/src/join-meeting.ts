@@ -1,7 +1,18 @@
 import { chromium, type BrowserContext, type Page } from "playwright";
 import path from "node:path";
+import { existsSync } from "node:fs";
+import readline from "node:readline";
 import { parseConfig } from "./config.js";
 import { selectors, joinButtonSelectors, askToJoinButtonSelectors } from "./selectors.js";
+import { setMic, setCameraOff, leaveMeeting } from "./meet-control.js";
+import {
+  setSystemDefaultsForMeeting,
+  restoreDefaults,
+  type DefaultsState,
+} from "./audio-routing.js";
+import { AudioBridge } from "./audio-bridge.js";
+import { VapiBridge } from "./vapi-bridge.js";
+import { startControlServer } from "./control-server.js";
 
 const log = (...msg: unknown[]): void =>
   console.log(`[${new Date().toISOString()}]`, ...msg);
@@ -23,6 +34,7 @@ async function launchContext(profileDir: string): Promise<BrowserContext> {
         "--disable-blink-features=AutomationControlled",
         "--no-first-run",
         "--no-default-browser-check",
+        "--autoplay-policy=no-user-gesture-required",
       ],
     });
   } catch (err) {
@@ -98,14 +110,14 @@ async function clickFirstVisible(
   return false;
 }
 
-async function clickJoin(page: Page): Promise<"joined" | "waitingRoom"> {
+async function clickJoin(page: Page): Promise<void> {
   if (await clickFirstVisible(page, joinButtonSelectors)) {
     log("Clicking 'Join now'...");
-    return "joined";
+    return;
   }
   if (await clickFirstVisible(page, askToJoinButtonSelectors)) {
     log("Clicking 'Ask to join' (locked meeting)...");
-    return "waitingRoom";
+    return;
   }
   throw new Error("No join button found on the pre-join screen.");
 }
@@ -142,27 +154,77 @@ async function waitForAdmission(page: Page, timeoutMs: number): Promise<void> {
   throw new Error("Not admitted to the meeting within the timeout.");
 }
 
-async function leaveMeeting(page: Page): Promise<void> {
-  try {
-    await page.locator(selectors.IN_CALL).first().click({ timeout: 3_000 });
-    await sleep(1_000);
-    const confirm = page
-      .locator('button:has-text("Leave meeting"), button:has-text("Just leave the meeting")')
-      .first();
-    if (await confirm.isVisible().catch(() => false)) {
-      await confirm.click();
-    }
-  } catch {
-    // Page already closed or we were never in a call.
-  }
-}
-
 async function main(): Promise<void> {
   const config = parseConfig(process.argv);
-  log(`Joining: ${config.meetUrl}`);
+  const vapiEnabled =
+    !config.noVapi && Boolean(config.vapiKey) && Boolean(config.assistantId);
+  log(
+    `Joining: ${config.meetUrl}` +
+      (vapiEnabled ? "" : " (Vapi not configured — joining with mic/cam off)"),
+  );
 
   let context: BrowserContext | undefined;
+  let audioDefaults: DefaultsState | undefined;
+  let audioBridge: AudioBridge | undefined;
+  let vapiBridge: VapiBridge | undefined;
+  let mode: "speak" | "listen" = "listen";
+  let cleanedUp = false;
+
+  const cleanup = async (): Promise<void> => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    log("Cleaning up...");
+    try {
+      await vapiBridge?.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await audioBridge?.stop();
+    } catch {
+      /* ignore */
+    }
+    const page = context?.pages()[0];
+    if (page) await leaveMeeting(page).catch(() => {});
+    try {
+      await context?.close();
+    } catch {
+      /* ignore */
+    }
+    if (audioDefaults) {
+      try {
+        await restoreDefaults(config.svclPath, audioDefaults);
+      } catch (err) {
+        log(
+          "WARNING: could not restore audio defaults:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+    log("Done.");
+  };
+
+  const shutdown = async (): Promise<void> => {
+    await cleanup();
+    process.exit(0);
+  };
+
   try {
+    if (vapiEnabled) {
+      if (!existsSync(config.svclPath)) {
+        throw new Error(
+          `svcl.exe not found at ${config.svclPath}. ` +
+            "Download SoundVolumeView from NirSoft, extract svcl.exe into tools/, and retry.",
+        );
+      }
+      log("Switching system audio defaults to VB-Cable...");
+      audioDefaults = await setSystemDefaultsForMeeting(
+        config.svclPath,
+        config.cableInputName,
+        config.cableOutputName,
+      );
+    }
+
     context = await launchContext(config.profileDir);
     await context.addInitScript(() => {
       Object.defineProperty(navigator, "webdriver", { get: () => undefined });
@@ -176,27 +238,76 @@ async function main(): Promise<void> {
 
     await waitForPrejoin(page, config.prejoinTimeoutMs);
     await fillName(page, config.displayName);
-    const admission = await clickJoin(page);
-
-    if (admission === "joined") {
-      log("Waiting to be admitted to the call...");
-    }
+    await clickJoin(page);
     await waitForAdmission(page, config.admissionTimeoutMs);
-    log("In meeting. Press Ctrl+C to leave.");
+    log("In meeting.");
 
-    let leaving = false;
-    process.on("SIGINT", async () => {
-      if (leaving) return;
-      leaving = true;
-      log("Leaving the meeting...");
-      await leaveMeeting(page);
-      await context?.close().catch(() => {});
-      process.exit(0);
-    });
+    await setCameraOff(page);
+    log("Camera off.");
+
+    if (vapiEnabled) {
+      audioBridge = new AudioBridge(config.bridgePort, (pcm) => {
+        if (mode === "listen") vapiBridge?.sendUserAudio(pcm);
+      });
+      const pageUrl = await audioBridge.start();
+      const audioPage = await context.newPage();
+      await audioPage.goto(pageUrl);
+
+      const setMode = async (speaking: boolean): Promise<void> => {
+        const next: "speak" | "listen" = speaking ? "speak" : "listen";
+        if (next === mode) return;
+        mode = next;
+        log(`Mode: ${mode.toUpperCase()}`);
+        await setMic(page, speaking).catch(() => {});
+      };
+
+      vapiBridge = new VapiBridge(
+        config.vapiKey!,
+        config.assistantId!,
+        (speaking) => {
+          void setMode(speaking);
+        },
+      );
+      vapiBridge.onAssistantAudio = (pcm) => audioBridge?.sendToPage(pcm);
+      await vapiBridge.start();
+      log("Vapi agent connected.");
+
+      await setMode(true);
+
+      readline.emitKeypressEvents(process.stdin);
+      if (process.stdin.isTTY) process.stdin.setRawMode(true);
+      process.stdin.on("keypress", (_str, key) => {
+        if (key.name === "m") {
+          const muted = !vapiBridge?.muted;
+          vapiBridge?.setMuted(muted);
+          log(`Agent ${muted ? "muted" : "unmuted"}.`);
+        }
+        if (key.name === "q") void shutdown();
+        if (key.ctrl && key.name === "c") void shutdown();
+      });
+
+      const controlPort = config.bridgePort + 1;
+      startControlServer(controlPort, {
+        setAgentMuted: (muted) => {
+          vapiBridge?.setMuted(muted);
+          log(`Agent ${muted ? "muted" : "unmuted"} (HTTP).`);
+        },
+        leave: () => void shutdown(),
+      });
+      log(
+        `Controls: press 'm' to mute/unmute the agent, 'q' to leave. ` +
+          `HTTP: POST http://127.0.0.1:${controlPort}/mute {"muted":true} | /leave`,
+      );
+    } else {
+      await setMic(page, false);
+      log("Mic off. Press Ctrl+C to leave.");
+    }
+
+    process.on("SIGINT", () => void shutdown());
+    process.on("SIGTERM", () => void shutdown());
   } catch (err) {
     log("ERROR:", err instanceof Error ? err.message : String(err));
-    await leaveMeeting((context?.pages()[0] ?? (await context?.newPage()))! as Page).catch(() => {});
-    await context?.close().catch(() => {});
+    await cleanup();
     process.exitCode = 1;
   }
 }

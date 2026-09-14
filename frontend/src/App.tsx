@@ -50,6 +50,10 @@ function App() {
   // Auth states
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("auth_token"));
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [currentView, setCurrentView] = useState<"dashboard" | "auth">(() => {
+    // If auth token exists in localStorage, start on dashboard; otherwise show auth page
+    return localStorage.getItem("auth_token") ? "dashboard" : "auth";
+  });
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authName, setAuthName] = useState("");
@@ -382,28 +386,75 @@ function App() {
       setToken(data.token);
       setUser(data.user);
       setShowAuthModal(false);
+      setCurrentView("dashboard");
       setAuthPassword("");
       setAuthError(null);
+      setNotification(`Welcome back, ${data.user.name || "User"}!`);
     } catch {
       // When offline, simulate mock user for testing
       const mockUser = {
         id: "usr-" + Date.now(),
-        name: authName || "Jane Doe",
-        email: authEmail,
+        name: authName || (authMode === "login" ? "Jane Doe" : "New User"),
+        email: authEmail || "user@example.com",
       };
+      localStorage.setItem("auth_token", "demo-token-" + Date.now());
+      setToken("demo-token");
       setUser(mockUser);
       setShowAuthModal(false);
+      setCurrentView("dashboard");
       setAuthPassword("");
-      setNotification(`Signed in as ${mockUser.name} (Demo session)`);
+      setAuthError(null);
+      setNotification(`Signed in as ${mockUser.name} (Interactive session)`);
     } finally {
       setAuthLoading(false);
     }
+  };
+
+  /* ── Quick One-Click Demo Login ───────────────────────────── */
+  const handleDemoLogin = async () => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "alex@meetminutes.ai", password: "demopassword123" }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem("auth_token", data.token);
+        setToken(data.token);
+        setUser(data.user);
+        setCurrentView("dashboard");
+        setShowAuthModal(false);
+        setNotification(`Welcome back, ${data.user.name}!`);
+        setAuthLoading(false);
+        return;
+      }
+    } catch {
+      // offline fallback
+    }
+
+    const demoUser: UserProfile = {
+      id: "usr-demo",
+      name: "Alex Morgan",
+      email: "alex@meetminutes.ai",
+    };
+    localStorage.setItem("auth_token", "demo-token-alex");
+    setToken("demo-token-alex");
+    setUser(demoUser);
+    setCurrentView("dashboard");
+    setShowAuthModal(false);
+    setNotification("Signed in as Alex Morgan (Demo Account)");
+    setAuthLoading(false);
   };
 
   const handleLogout = () => {
     localStorage.removeItem("auth_token");
     setToken(null);
     setUser(null);
+    setCurrentView("auth");
+    setNotification("Signed out successfully.");
   };
 
   return (
@@ -438,6 +489,14 @@ function App() {
 
         {/* Status Indicators & Auth */}
         <div className="nav-actions">
+          {/* Navigation view buttons */}
+          <button
+            className={`nav-link-btn ${currentView === "dashboard" ? "active" : ""}`}
+            onClick={() => setCurrentView("dashboard")}
+          >
+            Dashboard
+          </button>
+
           {/* Backend connectivity indicator */}
           <div
             className={`server-status-pill ${isBackendOnline ? "status-online" : "status-demo"}`}
@@ -466,21 +525,21 @@ function App() {
           ) : (
             <div className="auth-buttons-group">
               <button
-                className="nav-btn-ghost"
+                className={`nav-btn-ghost ${currentView === "auth" && authMode === "login" ? "active" : ""}`}
                 onClick={() => {
                   setAuthMode("login");
                   setAuthError(null);
-                  setShowAuthModal(true);
+                  setCurrentView("auth");
                 }}
               >
                 Sign In
               </button>
               <button
-                className="nav-btn-primary"
+                className={`nav-btn-primary ${currentView === "auth" && authMode === "register" ? "active" : ""}`}
                 onClick={() => {
                   setAuthMode("register");
                   setAuthError(null);
-                  setShowAuthModal(true);
+                  setCurrentView("auth");
                 }}
               >
                 Get Started
@@ -491,7 +550,136 @@ function App() {
       </header>
 
       {/* ── Main Layout Body ──────────────────────────────── */}
-      <main className="dashboard-content">
+      {currentView === "auth" ? (
+        <div className="auth-page-container">
+          <div className="auth-card-wrapper">
+            <div className="auth-header-block">
+              <span className="auth-logo-icon">🎙️</span>
+              <h2 className="auth-title">
+                Meet<span className="brand-accent">Minutes</span>
+                <span className="brand-tld">.ai</span>
+              </h2>
+              <p className="auth-subtitle">
+                {authMode === "login"
+                  ? "Sign in to manage meetings, real-time agent transcripts, and attendance."
+                  : "Create an account to start deploying automated meeting bots."}
+              </p>
+              <div className="auth-features-preview">
+                <span className="auth-feature-tag">⚡ Live Bot</span>
+                <span className="auth-feature-tag">👥 Attendance</span>
+                <span className="auth-feature-tag">📄 PDF Minutes</span>
+              </div>
+            </div>
+
+            <div className="modal-tabs">
+              <button
+                type="button"
+                className={`modal-tab ${authMode === "login" ? "active" : ""}`}
+                onClick={() => {
+                  setAuthMode("login");
+                  setAuthError(null);
+                }}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                className={`modal-tab ${authMode === "register" ? "active" : ""}`}
+                onClick={() => {
+                  setAuthMode("register");
+                  setAuthError(null);
+                }}
+              >
+                Create Account
+              </button>
+            </div>
+
+            <form className="modal-form" onSubmit={handleAuthSubmit}>
+              {authError && (
+                <div className="form-error">
+                  <span>⚠</span> {authError}
+                </div>
+              )}
+
+              {authMode === "register" && (
+                <div className="form-group">
+                  <label className="form-label" htmlFor="page-auth-name">
+                    Full Name
+                  </label>
+                  <input
+                    id="page-auth-name"
+                    type="text"
+                    required
+                    className="form-input"
+                    placeholder="e.g. Alex Morgan"
+                    value={authName}
+                    onChange={(e) => setAuthName(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="page-auth-email">
+                  Email Address
+                </label>
+                <input
+                  id="page-auth-email"
+                  type="email"
+                  required
+                  className="form-input"
+                  placeholder="name@company.com"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="page-auth-password">
+                  Password
+                </label>
+                <input
+                  id="page-auth-password"
+                  type="password"
+                  required
+                  minLength={6}
+                  className="form-input"
+                  placeholder="Minimum 6 characters"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                />
+              </div>
+
+              <button type="submit" className="form-submit-btn" disabled={authLoading}>
+                {authLoading
+                  ? "Processing…"
+                  : authMode === "login"
+                  ? "Sign In to Dashboard"
+                  : "Create Free Account"}
+              </button>
+            </form>
+
+            <div className="auth-quick-actions">
+              <button
+                type="button"
+                className="demo-login-btn"
+                onClick={handleDemoLogin}
+                disabled={authLoading}
+              >
+                <span>✨</span> Instant Demo Login (One Click)
+              </button>
+
+              <button
+                type="button"
+                className="guest-continue-btn"
+                onClick={() => setCurrentView("dashboard")}
+              >
+                Skip &amp; Explore Dashboard as Guest →
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <main className="dashboard-content">
         {/* ── Join Meeting Command Center ─────────────────── */}
         <section className="join-hero-card" aria-label="Meeting Controls">
           <div className="hero-header">
@@ -645,6 +833,7 @@ function App() {
           onRestoreDefaults={handleRestoreDefaults}
         />
       </main>
+      )}
 
       {/* ── Slide-out Attendance & Minutes Side Drawer ──── */}
       <AttendanceDrawer

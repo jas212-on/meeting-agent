@@ -98,7 +98,7 @@ export async function setCameraOff(page: Page): Promise<void> {
   try {
     console.log("[MeetControl] Step: Ensuring Google Meet camera is turned OFF...");
     await page.bringToFront().catch(() => {});
-    const camBtn = page.locator('button[aria-label*="camera" i], button[aria-label*="video" i]').first();
+    const camBtn = page.locator('button[aria-label*="camera" i], button[aria-label*="video" i], div[role="button"][aria-label*="camera" i], div[role="button"][aria-label*="video" i]').first();
     const exists = await camBtn.isVisible({ timeout: 1_000 }).catch(() => false);
     if (!exists) {
       console.log("[MeetControl] Camera button not found (already off or not available).");
@@ -108,7 +108,7 @@ export async function setCameraOff(page: Page): Promise<void> {
     const isMutedAttr = await camBtn.getAttribute("data-is-muted", { timeout: 1_000 }).catch(() => null);
     const ariaLabel = (await camBtn.getAttribute("aria-label", { timeout: 1_000 }).catch(() => "")) || "";
 
-    const isOff = isMutedAttr === "true" || /turn on camera/i.test(ariaLabel);
+    const isOff = isMutedAttr === "true" || /turn on camera/i.test(ariaLabel) || /turn on video/i.test(ariaLabel);
     if (isOff) {
       console.log("[MeetControl] Google Meet camera is already OFF.");
       return;
@@ -121,6 +121,24 @@ export async function setCameraOff(page: Page): Promise<void> {
   } catch (err) {
     console.warn("[MeetControl] Non-critical warning toggling camera off:", err);
   }
+}
+
+export async function dismissPopups(page: Page): Promise<boolean> {
+  try {
+    const { mediaPromptSelectors } = await import("./selectors.js");
+    for (const sel of mediaPromptSelectors) {
+      const loc = page.locator(sel).first();
+      if (await loc.isVisible({ timeout: 300 }).catch(() => false)) {
+        console.log(`[MeetControl] Dismissing popup prompt: ${sel}`);
+        await loc.click({ timeout: 1000 }).catch(() => {});
+        await sleep(300);
+        return true;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
 }
 
 export async function leaveMeeting(page: Page): Promise<void> {

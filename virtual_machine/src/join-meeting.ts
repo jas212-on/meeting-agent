@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import readline from "node:readline";
 import { parseConfig } from "./config.js";
 import { selectors, joinButtonSelectors, askToJoinButtonSelectors } from "./selectors.js";
-import { setMic, setCameraOff, leaveMeeting } from "./meet-control.js";
+import { setMic, setCameraOff, leaveMeeting, dismissPopups } from "./meet-control.js";
 import {
   setSystemDefaultsForMeeting,
   restoreDefaults,
@@ -61,33 +61,30 @@ async function waitForPrejoin(page: Page, timeoutMs: number): Promise<void> {
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    await dismissPopups(page);
     const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     try {
       const stage = await Promise.any(
         candidates.map(([sel, key]) =>
           page
             .locator(sel)
             .first()
-            .waitFor({ state: "visible", timeout: remaining })
+            .waitFor({ state: "visible", timeout: Math.min(2000, remaining) })
             .then(() => key),
         ),
       );
 
       if (stage === "mediaPrompt") {
         log("[Step 6] Media prompt detected: Dismissing microphone/camera permission prompt...");
-        const accept = page.locator(selectors.MEDIA_PROMPT_ACCEPT).first();
-        const skip = page.locator(selectors.MEDIA_PROMPT_SKIP).first();
-        if (await accept.isVisible().catch(() => false)) {
-          await accept.click();
-        } else if (await skip.isVisible().catch(() => false)) {
-          await skip.click();
-        }
+        await dismissPopups(page);
         continue;
       }
       log(`[Step 6] Pre-join screen ready (detected stage: ${stage}).`);
       return;
     } catch {
-      break;
+      await dismissPopups(page);
+      await sleep(300);
     }
   }
   log("[Step 6] FAILED: Google Meet pre-join screen did not appear within timeout.");
@@ -127,6 +124,7 @@ async function clickJoin(page: Page, timeoutMs = 15_000): Promise<void> {
   log("[Step 8] Locating and clicking Join button...");
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    await dismissPopups(page);
     if (await clickFirstVisible(page, joinButtonSelectors)) {
       log("[Step 8] Clicked 'Join now' button.");
       return;
@@ -264,10 +262,17 @@ async function main(): Promise<void> {
           Object.defineProperty(navigator, 'webdriver', { get: function() { return undefined; } });
         } catch (e) {}
 
-        // 1. Intercept microphone capture to force CABLE Output
+        // 1. Intercept microphone capture to force CABLE Output and disable video
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
           var origGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
           navigator.mediaDevices.getUserMedia = async function(constraints) {
+            if (constraints) {
+              if (constraints.video) {
+                console.log('[MediaHook] Disabling video capture in constraints (camera kept OFF)');
+                constraints.video = false;
+              }
+            }
+
             if (constraints && constraints.audio) {
               try {
                 var devices = await navigator.mediaDevices.enumerateDevices();
@@ -297,8 +302,20 @@ async function main(): Promise<void> {
               } catch (err) {
                 console.warn('[MediaHook] Error selecting CABLE Output microphone:', err);
               }
+              return origGetUserMedia(constraints);
             }
-            return origGetUserMedia(constraints);
+
+            // If only video was requested without audio, return a disabled empty video stream
+            var canvas = document.createElement('canvas');
+            canvas.width = 2;
+            canvas.height = 2;
+            var stream = canvas.captureStream ? canvas.captureStream(0) : new MediaStream();
+            var track = stream.getVideoTracks()[0];
+            if (track) {
+              track.enabled = false;
+              track.stop();
+            }
+            return stream;
           };
         }
       })();
@@ -371,6 +388,7 @@ async function main(): Promise<void> {
 
     await waitForPrejoin(page, config.prejoinTimeoutMs);
     await fillName(page, config.displayName);
+    await setCameraOff(page).catch(() => {});
     await clickJoin(page);
     await waitForAdmission(page, config.admissionTimeoutMs);
     log("[Step 10] Successfully joined meeting.");

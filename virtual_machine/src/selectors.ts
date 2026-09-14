@@ -13,6 +13,17 @@ export const selectors = {
   CAMERA_ON: 'button[aria-label*="Turn off camera"]',
 } as const;
 
+export const mediaPromptSelectors = [
+  'button:has-text("Continue without camera")',
+  'button:has-text("Continue without microphone and camera")',
+  'button:has-text("Continue without")',
+  'div[role="dialog"] button:has-text("Dismiss")',
+  'div[role="dialog"] button:has-text("Got it")',
+  'div[role="dialog"] button:has-text("Close")',
+  'div[role="alertdialog"] button',
+  'button[aria-label="Use microphone and camera"]',
+] as const;
+
 export const joinButtonSelectors = [
   'button[aria-label*="Join now" i]',
   'button[aria-label*="Join" i]',

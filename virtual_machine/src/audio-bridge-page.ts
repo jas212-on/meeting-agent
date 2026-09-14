@@ -133,32 +133,64 @@ export const audioBridgePageHtml = `<!doctype html>
 
   console.log("[AudioBridgePage] Step 1: Initializing Audio Bridge in browser...");
 
-  var ws = new WebSocket(
-    (location.protocol === 'https:' ? 'wss://' : 'ws://') +
-    location.host +
-    '/ws'
-  );
-
-  ws.binaryType = 'arraybuffer';
-
-  ws.onopen = function () {
-    console.log("[AudioBridgePage] SUCCESS: WebSocket connection to Node bridge OPEN");
-  };
-
-  ws.onerror = function (e) {
-    console.error("[AudioBridgePage] ERROR: WebSocket connection failed", e);
-  };
-
-  ws.onclose = function () {
-    console.log("[AudioBridgePage] WebSocket CLOSED");
-  };
-
+  var ws = null;
   var audioNode = null;
   var pendingQueue = [];
   var lastUserAudioCapturedLog = 0;
   var totalCapturedBytes = 0;
   var isAssistantPlaying = false;
   var playbackStopTimer = null;
+  var isAudioStarted = false;
+
+  function connectWs() {
+    ws = new WebSocket(
+      (location.protocol === 'https:' ? 'wss://' : 'ws://') +
+      location.host +
+      '/ws'
+    );
+
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = function () {
+      console.log("[AudioBridgePage] SUCCESS: WebSocket connection to Node bridge OPEN");
+      if (isAudioStarted) {
+        ws.send(JSON.stringify({ type: "ready" }));
+      }
+    };
+
+    ws.onerror = function (e) {
+      console.error("[AudioBridgePage] ERROR: WebSocket connection failed", e);
+    };
+
+    ws.onclose = function () {
+      console.log("[AudioBridgePage] WebSocket CLOSED, reconnecting in 1s...");
+      setTimeout(connectWs, 1000);
+    };
+
+    ws.onmessage = function (ev) {
+      var data = ev.data;
+
+      if (data instanceof Blob) {
+
+        data.arrayBuffer().then(function (buf) {
+          forwardAudio(buf);
+        });
+
+      } else if (data instanceof ArrayBuffer) {
+
+        forwardAudio(data);
+
+      } else {
+
+        console.warn(
+          "[AudioBridgePage] Unknown WS message received:",
+          data
+        );
+      }
+    };
+  }
+
+  connectWs();
 
   // ============================================================
   // VAPI AUDIO FROM NODE
@@ -177,28 +209,6 @@ export const audioBridgePageHtml = `<!doctype html>
       pendingQueue.push(buf);
     }
   }
-
-  ws.onmessage = function (ev) {
-    var data = ev.data;
-
-    if (data instanceof Blob) {
-
-      data.arrayBuffer().then(function (buf) {
-        forwardAudio(buf);
-      });
-
-    } else if (data instanceof ArrayBuffer) {
-
-      forwardAudio(data);
-
-    } else {
-
-      console.warn(
-        "[AudioBridgePage] Unknown WS message received:",
-        data
-      );
-    }
-  };
 
   // ============================================================
   // START AUDIO
@@ -429,7 +439,9 @@ export const audioBridgePageHtml = `<!doctype html>
       // ========================================================
 
       console.log("[AudioBridgePage] Step 7: Sending 'ready' notification to Node audio bridge server...");
+      isAudioStarted = true;
       if (
+        ws &&
         ws.readyState === WebSocket.OPEN
       ) {
 
@@ -439,20 +451,6 @@ export const audioBridgePageHtml = `<!doctype html>
           })
         );
 
-      } else {
-
-        ws.addEventListener(
-          "open",
-          function () {
-
-            ws.send(
-              JSON.stringify({
-                type: "ready"
-              })
-            );
-
-          }
-        );
       }
 
       // ========================================================

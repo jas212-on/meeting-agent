@@ -22,9 +22,9 @@ const sleep = (ms: number): Promise<void> =>
 
 async function launchContext(profileDir: string): Promise<BrowserContext> {
   const absolute = path.resolve(profileDir);
-  log(`Launching Chrome with persistent profile: ${absolute}`);
+  log(`[Step 3] Launching Chrome with persistent profile: ${absolute}`);
   try {
-    return await chromium.launchPersistentContext(absolute, {
+    const context = await chromium.launchPersistentContext(absolute, {
       channel: "chrome",
       headless: false,
       viewport: null,
@@ -37,7 +37,10 @@ async function launchContext(profileDir: string): Promise<BrowserContext> {
         "--autoplay-policy=no-user-gesture-required",
       ],
     });
+    log("[Step 3] Chrome browser launched successfully.");
+    return context;
   } catch (err) {
+    log("[Step 3] FAILED: Could not launch Chrome browser:", err);
     throw new Error(
       `Failed to launch Chrome with profile "${absolute}". ` +
         "Close any Chrome window already using this profile, then retry. " +
@@ -47,6 +50,7 @@ async function launchContext(profileDir: string): Promise<BrowserContext> {
 }
 
 async function waitForPrejoin(page: Page, timeoutMs: number): Promise<void> {
+  log(`[Step 6] Waiting for Google Meet pre-join screen (timeout: ${timeoutMs}ms)...`);
   const candidates = [
     [selectors.NAME_INPUT, "name"],
     [selectors.MEDIA_PROMPT_ACCEPT, "mediaPrompt"],
@@ -70,7 +74,7 @@ async function waitForPrejoin(page: Page, timeoutMs: number): Promise<void> {
       );
 
       if (stage === "mediaPrompt") {
-        log("Dismissing microphone/camera prompt...");
+        log("[Step 6] Media prompt detected: Dismissing microphone/camera permission prompt...");
         const accept = page.locator(selectors.MEDIA_PROMPT_ACCEPT).first();
         const skip = page.locator(selectors.MEDIA_PROMPT_SKIP).first();
         if (await accept.isVisible().catch(() => false)) {
@@ -80,19 +84,28 @@ async function waitForPrejoin(page: Page, timeoutMs: number): Promise<void> {
         }
         continue;
       }
+      log(`[Step 6] Pre-join screen ready (detected stage: ${stage}).`);
       return;
     } catch {
       break;
     }
   }
+  log("[Step 6] FAILED: Google Meet pre-join screen did not appear within timeout.");
   throw new Error("Google Meet pre-join screen did not appear in time.");
 }
 
 async function fillName(page: Page, displayName: string | undefined): Promise<void> {
-  if (!displayName) return;
+  if (!displayName) {
+    log("[Step 7] No custom display name provided, using default account profile name.");
+    return;
+  }
+  log(`[Step 7] Setting participant display name to: "${displayName}"...`);
   const input = page.locator(selectors.NAME_INPUT).first();
   if (await input.isVisible().catch(() => false)) {
     await input.fill(displayName);
+    log(`[Step 7] Display name set to "${displayName}".`);
+  } else {
+    log("[Step 7] Name input not required (already logged into Google account).");
   }
 }
 
@@ -110,26 +123,35 @@ async function clickFirstVisible(
   return false;
 }
 
-async function clickJoin(page: Page): Promise<void> {
-  if (await clickFirstVisible(page, joinButtonSelectors)) {
-    log("Clicking 'Join now'...");
-    return;
+async function clickJoin(page: Page, timeoutMs = 15_000): Promise<void> {
+  log("[Step 8] Locating and clicking Join button...");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await clickFirstVisible(page, joinButtonSelectors)) {
+      log("[Step 8] Clicked 'Join now' button.");
+      return;
+    }
+    if (await clickFirstVisible(page, askToJoinButtonSelectors)) {
+      log("[Step 8] Clicked 'Ask to join' button (meeting with host admission required).");
+      return;
+    }
+    await sleep(500);
   }
-  if (await clickFirstVisible(page, askToJoinButtonSelectors)) {
-    log("Clicking 'Ask to join' (locked meeting)...");
-    return;
-  }
+  log("[Step 8] FAILED: No join button found on pre-join screen.");
   throw new Error("No join button found on the pre-join screen.");
 }
 
 async function waitForAdmission(page: Page, timeoutMs: number): Promise<void> {
+  log(`[Step 9] Waiting for admission into call (timeout: ${timeoutMs}ms)...`);
   const deadline = Date.now() + timeoutMs;
   let waitingLogged = false;
   while (Date.now() < deadline) {
     if (await page.locator(selectors.IN_CALL).first().isVisible().catch(() => false)) {
+      log("[Step 9] SUCCESS: Admitted and joined the call.");
       return;
     }
     if (await page.locator(selectors.ALONE).first().isVisible().catch(() => false)) {
+      log("[Step 9] SUCCESS: Joined the call (currently alone in room).");
       return;
     }
 
@@ -140,17 +162,18 @@ async function waitForAdmission(page: Page, timeoutMs: number): Promise<void> {
       .catch(() => false);
     if (inWaitingRoom) {
       if (!waitingLogged) {
-        log("Waiting for the host to admit you...");
+        log("[Step 9] In waiting room: waiting for the meeting host to admit the agent...");
         waitingLogged = true;
       }
     } else {
       const clicked = await clickJoin(page).catch(() => false);
       if (clicked) {
-        log("Not in the call yet — clicking the join button again.");
+        log("[Step 9] Not in the call yet — re-clicked join button.");
       }
     }
     await sleep(2_000);
   }
+  log("[Step 9] FAILED: Timed out waiting for host admission.");
   throw new Error("Not admitted to the meeting within the timeout.");
 }
 
@@ -158,10 +181,12 @@ async function main(): Promise<void> {
   const config = parseConfig(process.argv);
   const vapiEnabled =
     !config.noVapi && Boolean(config.vapiKey) && Boolean(config.assistantId);
-  log(
-    `Joining: ${config.meetUrl}` +
-      (vapiEnabled ? "" : " (Vapi not configured — joining with mic/cam off)"),
-  );
+
+  log("=================================================");
+  log("        GOOGLE MEET AI VOICE AGENT STARTING      ");
+  log("=================================================");
+  log(`[Step 1] Target Meeting: ${config.meetUrl}`);
+  log(`[Step 1] Vapi Integration: ${vapiEnabled ? "ENABLED" : "DISABLED"}`);
 
   let context: BrowserContext | undefined;
   let audioDefaults: DefaultsState | undefined;
@@ -173,7 +198,7 @@ async function main(): Promise<void> {
   const cleanup = async (): Promise<void> => {
     if (cleanedUp) return;
     cleanedUp = true;
-    log("Cleaning up...");
+    log("Cleaning up session...");
     try {
       await vapiBridge?.stop();
     } catch {
@@ -201,7 +226,7 @@ async function main(): Promise<void> {
         );
       }
     }
-    log("Done.");
+    log("Session cleanup complete.");
   };
 
   const shutdown = async (): Promise<void> => {
@@ -211,56 +236,166 @@ async function main(): Promise<void> {
 
   try {
     if (vapiEnabled) {
+      log("[Step 2] Checking svcl audio routing tool...");
       if (!existsSync(config.svclPath)) {
         throw new Error(
           `svcl.exe not found at ${config.svclPath}. ` +
             "Download SoundVolumeView from NirSoft, extract svcl.exe into tools/, and retry.",
         );
       }
-      log("Switching system audio defaults to VB-Cable...");
+      log("[Step 2] Switching system audio defaults to VB-Cable...");
       audioDefaults = await setSystemDefaultsForMeeting(
         config.svclPath,
         config.cableInputName,
         config.cableOutputName,
       );
+      log("[Step 2] System audio defaults successfully configured to VB-Cable.");
     }
 
     context = await launchContext(config.profileDir);
-    await context.addInitScript(() => {
-      Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-    });
+
+    const mediaHookScript = `
+      (function() {
+        if (!window.location.href.includes('meet.google.com')) {
+          return;
+        }
+
+        try {
+          Object.defineProperty(navigator, 'webdriver', { get: function() { return undefined; } });
+        } catch (e) {}
+
+        // 1. Intercept microphone capture to force CABLE Output
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          var origGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+          navigator.mediaDevices.getUserMedia = async function(constraints) {
+            if (constraints && constraints.audio) {
+              try {
+                var devices = await navigator.mediaDevices.enumerateDevices();
+                var cableMic = devices.find(function(d) {
+                  return d.kind === 'audioinput' && /cable output|vb-audio/i.test(d.label);
+                });
+                if (cableMic) {
+                  console.log('[MediaHook] Routing getUserMedia microphone to CABLE Output:', cableMic.label, cableMic.deviceId);
+                  if (typeof constraints.audio === 'boolean') {
+                    constraints.audio = {
+                      deviceId: { exact: cableMic.deviceId },
+                      echoCancellation: false,
+                      noiseSuppression: false,
+                      autoGainControl: false,
+                      channelCount: 1
+                    };
+                  } else if (typeof constraints.audio === 'object') {
+                    constraints.audio = Object.assign({}, constraints.audio, {
+                      deviceId: { exact: cableMic.deviceId },
+                      echoCancellation: false,
+                      noiseSuppression: false,
+                      autoGainControl: false,
+                      channelCount: 1
+                    });
+                  }
+                }
+              } catch (err) {
+                console.warn('[MediaHook] Error selecting CABLE Output microphone:', err);
+              }
+            }
+            return origGetUserMedia(constraints);
+          };
+        }
+      })();
+    `;
 
     const page = context.pages()[0] ?? (await context.newPage());
     page.setDefaultTimeout(config.prejoinTimeoutMs);
+    await page.addInitScript(mediaHookScript);
 
-    log("Opening Google Meet...");
+    page.on("console", (msg) => {
+      const text = msg.text();
+      if (text.includes("[MediaHook]") || text.includes("audio") || text.includes("microphone") || text.includes("[MeetControl]")) {
+        log("[meet:browser]", text);
+      }
+    });
+    page.on("pageerror", (err: Error) => {
+      log("[meet:pageerror]", err.message);
+    });
+
+    let audioPage: Page | undefined;
+    if (vapiEnabled) {
+      log("[Step 4] Initializing Audio Bridge server and browser worklet...");
+      let audioBytes = 0;
+      let maxPeak = 0;
+      let lastLog = 0;
+      let totalVoiceChunks = 0;
+
+      audioBridge = new AudioBridge(config.bridgePort, (pcm) => {
+        totalVoiceChunks++;
+        audioBytes += pcm.length;
+        for (let i = 0; i < pcm.length; i += 2) {
+          const val = Math.abs(pcm.readInt16LE(i));
+          if (val > maxPeak) maxPeak = val;
+        }
+
+        const now = Date.now();
+        if (now - lastLog > 3_000) {
+          const peakPercent = Math.round((maxPeak / 32768) * 100);
+          log(`[AudioPipeline] User voice received (${pcm.length} B chunk, total: ${Math.round(audioBytes / 1024)} KB, signal peak: ${peakPercent}%) -> voice sent to vapi`);
+          maxPeak = 0;
+          lastLog = now;
+        }
+
+        vapiBridge?.sendUserAudio(pcm);
+      });
+
+      audioBridge.onPlaybackStateChange = (playing) => {
+        log(`[AudioPipeline] Audio playback state changed: ${playing ? "PLAYING assistant voice in meeting" : "STOPPED / IDLE"}`);
+        vapiBridge?.setPlaybackState(playing);
+      };
+
+      const pageUrl = await audioBridge.start();
+      audioPage = await context.newPage();
+      audioPage.on("console", (msg) => {
+        log("[browser:bridge]", msg.text());
+      });
+      audioPage.on("pageerror", (err: Error) => {
+        log("[browser:bridge:pageerror]", err.message);
+      });
+
+      log(`[Step 4] Opening audio bridge page at ${pageUrl}...`);
+      await audioPage.goto(pageUrl);
+      await audioBridge.waitForReady();
+      log("[Step 4] SUCCESS: Audio Bridge initialized and fully ready.");
+    }
+
+    await page.bringToFront().catch(() => {});
+    log(`[Step 5] Navigating to Google Meet: ${config.meetUrl}...`);
     await page.goto(config.meetUrl, { waitUntil: "domcontentloaded" });
 
     await waitForPrejoin(page, config.prejoinTimeoutMs);
     await fillName(page, config.displayName);
     await clickJoin(page);
     await waitForAdmission(page, config.admissionTimeoutMs);
-    log("In meeting.");
+    log("[Step 10] Successfully joined meeting.");
 
-    await setCameraOff(page);
-    log("Camera off.");
+    try {
+      await setCameraOff(page);
+      log("[Step 10] Camera confirmed OFF.");
+    } catch {
+      /* non-critical */
+    }
 
     if (vapiEnabled) {
-      audioBridge = new AudioBridge(config.bridgePort, (pcm) => {
-        if (mode === "listen") vapiBridge?.sendUserAudio(pcm);
-      });
-      const pageUrl = await audioBridge.start();
-      const audioPage = await context.newPage();
-      await audioPage.goto(pageUrl);
-
       const setMode = async (speaking: boolean): Promise<void> => {
         const next: "speak" | "listen" = speaking ? "speak" : "listen";
         if (next === mode) return;
         mode = next;
-        log(`Mode: ${mode.toUpperCase()}`);
-        await setMic(page, speaking).catch(() => {});
+        log(`[ModeChange] Switched to mode: ${mode.toUpperCase()} (Assistant is ${speaking ? "SPEAKING (unmuting mic)" : "LISTENING (muting mic)"})`);
+        try {
+          await setMic(page, speaking);
+        } catch (err) {
+          log("Warning: could not toggle Google Meet microphone:", err instanceof Error ? err.message : String(err));
+        }
       };
 
+      log("[Step 11] Connecting to Vapi Voice AI Agent...");
       vapiBridge = new VapiBridge(
         config.vapiKey!,
         config.assistantId!,
@@ -268,11 +403,15 @@ async function main(): Promise<void> {
           void setMode(speaking);
         },
       );
-      vapiBridge.onAssistantAudio = (pcm) => audioBridge?.sendToPage(pcm);
+      vapiBridge.onAssistantAudio = (pcm) => {
+        audioBridge?.sendToPage(pcm);
+      };
       await vapiBridge.start();
-      log("Vapi agent connected.");
+      log("[Step 11] SUCCESS: Vapi Voice AI Agent connected and active.");
 
-      await setMode(true);
+      log("=================================================");
+      log("   ALL STEPS COMPLETED: AGENT ACTIVE & LISTENING ");
+      log("=================================================");
 
       readline.emitKeypressEvents(process.stdin);
       if (process.stdin.isTTY) process.stdin.setRawMode(true);
@@ -280,7 +419,7 @@ async function main(): Promise<void> {
         if (key.name === "m") {
           const muted = !vapiBridge?.muted;
           vapiBridge?.setMuted(muted);
-          log(`Agent ${muted ? "muted" : "unmuted"}.`);
+          log(`Agent ${muted ? "MUTED" : "UNMUTED"}.`);
         }
         if (key.name === "q") void shutdown();
         if (key.ctrl && key.name === "c") void shutdown();
@@ -290,13 +429,13 @@ async function main(): Promise<void> {
       startControlServer(controlPort, {
         setAgentMuted: (muted) => {
           vapiBridge?.setMuted(muted);
-          log(`Agent ${muted ? "muted" : "unmuted"} (HTTP).`);
+          log(`Agent ${muted ? "MUTED" : "UNMUTED"} (via HTTP).`);
         },
         leave: () => void shutdown(),
       });
       log(
-        `Controls: press 'm' to mute/unmute the agent, 'q' to leave. ` +
-          `HTTP: POST http://127.0.0.1:${controlPort}/mute {"muted":true} | /leave`,
+        `Controls: Press 'm' to mute/unmute, 'q' to leave meeting. ` +
+          `HTTP API: POST http://127.0.0.1:${controlPort}/mute {"muted":true} | /leave`,
       );
     } else {
       await setMic(page, false);
@@ -306,7 +445,7 @@ async function main(): Promise<void> {
     process.on("SIGINT", () => void shutdown());
     process.on("SIGTERM", () => void shutdown());
   } catch (err) {
-    log("ERROR:", err instanceof Error ? err.message : String(err));
+    log("CRITICAL ERROR ENCOUNTERED:", err instanceof Error ? err.message : String(err));
     await cleanup();
     process.exitCode = 1;
   }

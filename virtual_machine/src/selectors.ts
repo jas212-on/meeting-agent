@@ -14,12 +14,19 @@ export const selectors = {
 } as const;
 
 export const joinButtonSelectors = [
-  'button[aria-label="Join now"]',
+  'button[aria-label*="Join now" i]',
+  'button[aria-label*="Join" i]',
   'button[data-promo-anchor-id="join-button"]',
+  'button[jsname="Qx7uuf"]',
   'button:has-text("Join now")',
+  'button:has-text("Join")',
+  'span:has-text("Join now")',
+  'span:has-text("Join")',
 ] as const;
 
 export const askToJoinButtonSelectors = [
-  'button[aria-label="Ask to join"]',
+  'button[aria-label*="Ask to join" i]',
+  'button[jsname="Qx7uuf"]',
   'button:has-text("Ask to join")',
+  'span:has-text("Ask to join")',
 ] as const;

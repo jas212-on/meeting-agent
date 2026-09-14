@@ -1,4 +1,15 @@
 import path from "node:path";
+import fs from "node:fs";
+
+// Automatically load local .env if available
+const envPath = path.resolve(".env");
+if (fs.existsSync(envPath) && typeof process.loadEnvFile === "function") {
+  try {
+    process.loadEnvFile(envPath);
+  } catch {
+    /* ignore */
+  }
+}
 
 export interface Config {
   meetUrl: string;
@@ -60,9 +71,9 @@ export function parseConfig(argv: string[]): Config {
 
     svclPath,
     cableInputName:
-      process.env.CABLE_INPUT_NAME ?? "CABLE Input (VB-Audio Virtual Cable)",
+      process.env.CABLE_INPUT_NAME ?? "CABLE Input",
     cableOutputName:
-      process.env.CABLE_OUTPUT_NAME ?? "CABLE Output (VB-Audio Virtual Cable)",
+      process.env.CABLE_OUTPUT_NAME ?? "CABLE Output",
 
     vapiKey,
     assistantId,

@@ -104,10 +104,32 @@ function App() {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
-  /* ── Check user session ──────────────────────────────────── */
+  /* ── Fetch meetings from database ────────────────────────── */
+  const fetchMeetings = useCallback(async () => {
+    try {
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const res = await fetch("/api/meetings", { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.meetings)) {
+          if (data.meetings.length > 0) {
+            setMeetings(data.meetings);
+          }
+        }
+      }
+    } catch {
+      // Backend offline or unreachable, fallback to localStorage
+    }
+  }, [token]);
+
+  /* ── Check user session & sync database ──────────────────── */
   useEffect(() => {
     if (!token) {
       setUser(null);
+      fetchMeetings();
       return;
     }
 
@@ -127,10 +149,11 @@ function App() {
       } catch {
         // Backend offline or unreachable
       }
+      fetchMeetings();
     };
 
     fetchMe();
-  }, [token]);
+  }, [token, fetchMeetings]);
 
   /* ── SSE log stream ──────────────────────────────────────── */
   const connectLogs = useCallback(() => {
@@ -150,9 +173,9 @@ function App() {
     }
   }, []);
 
-  /* ── Complete meeting & record history ────────────────────── */
+  /* ── Complete meeting & record history in database ────────── */
   const finalizeMeetingSession = useCallback(
-    (meetingUrl: string, durationSecs: number) => {
+    async (meetingUrl: string, durationSecs: number) => {
       if (!meetingUrl) return;
       const effectiveSecs = Math.max(8, durationSecs);
       const newRecord = createNewMeetingRecord(meetingUrl, effectiveSecs, user);
@@ -161,6 +184,21 @@ function App() {
       setSelectedMeeting(newRecord);
       setIsDrawerOpen(true);
       setNotification(`Meeting ${newRecord.id} completed! Attendance & minutes recorded.`);
+
+      // Persist record to MongoDB Atlas
+      try {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+        await fetch("/api/meetings", {
+          method: "POST",
+          headers,
+          body: JSON.stringify(newRecord),
+        });
+      } catch (err) {
+        console.warn("Failed to persist meeting record to backend:", err);
+      }
 
       // Reset timer references
       activeMeetingStartTimeRef.current = null;
@@ -171,7 +209,7 @@ function App() {
         setNotification(null);
       }, 5000);
     },
-    [user]
+    [user, token]
   );
 
   /* ── Poll status & handle backend connectivity ─────────────── */
@@ -311,11 +349,24 @@ function App() {
     setIsDrawerOpen(true);
   };
 
-  const handleDeleteMeeting = (meetingId: string) => {
+  const handleDeleteMeeting = async (meetingId: string) => {
     setMeetings((prev) => prev.filter((m) => m.id !== meetingId));
     if (selectedMeeting?.id === meetingId) {
       setIsDrawerOpen(false);
       setSelectedMeeting(null);
+    }
+
+    try {
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      await fetch(`/api/meetings/${meetingId}`, {
+        method: "DELETE",
+        headers,
+      });
+    } catch (err) {
+      console.warn("Failed to delete meeting from backend:", err);
     }
   };
 
@@ -323,7 +374,9 @@ function App() {
     setMeetings(INITIAL_MEETINGS);
   };
 
-  const handleToggleActionItem = (meetingId: string, actionId: string) => {
+  const handleToggleActionItem = async (meetingId: string, actionId: string) => {
+    let nextCompleted: boolean | undefined;
+
     setMeetings((prev) =>
       prev.map((m) => {
         if (m.id !== meetingId) return m;
@@ -331,9 +384,13 @@ function App() {
           ...m,
           minutes: {
             ...m.minutes,
-            actionItems: m.minutes.actionItems.map((item) =>
-              item.id === actionId ? { ...item, completed: !item.completed } : item
-            ),
+            actionItems: m.minutes.actionItems.map((item) => {
+              if (item.id === actionId) {
+                nextCompleted = !item.completed;
+                return { ...item, completed: !item.completed };
+              }
+              return item;
+            }),
           },
         };
       })
@@ -352,6 +409,20 @@ function App() {
           },
         };
       });
+    }
+
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      await fetch(`/api/meetings/${meetingId}/actions/${actionId}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ completed: nextCompleted }),
+      });
+    } catch (err) {
+      console.warn("Failed to sync action item to backend:", err);
     }
   };
 

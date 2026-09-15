@@ -1,10 +1,10 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import mongoose from "mongoose";
-import { connectDB } from "./config/db.js";
+import { connectDB, closeDB, getDBStatus } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import meetingRoutes from "./routes/meetingRoutes.js";
+import meetingDataRoutes from "./routes/meetingDataRoutes.js";
 import { apiLimiter } from "./middleware/rateLimiter.js";
 
 // Load environment variables
@@ -23,41 +23,35 @@ connectDB();
 app.use(
   cors({
     origin: "*", // Allows requests from Vite dev server and production clients
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Apply general rate limiting across all API routes
 app.use("/api", apiLimiter);
 
 /* ── Health check ────────────────────────────────────────── */
 app.get("/api/health", (_req: Request, res: Response) => {
-  const dbState = mongoose.connection.readyState;
-  const dbStatus =
-    dbState === 1
-      ? "connected"
-      : dbState === 2
-      ? "connecting"
-      : dbState === 3
-      ? "disconnecting"
-      : "disconnected";
+  const dbInfo = getDBStatus();
 
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
     database: {
-      status: dbStatus,
-      name: mongoose.connection.name,
+      status: dbInfo.state,
+      name: dbInfo.dbName,
+      host: dbInfo.host,
     },
   });
 });
 
 /* ── Route Mounts ────────────────────────────────────────── */
 app.use("/api/auth", authRoutes);
+app.use("/api/meetings", meetingDataRoutes);
 app.use("/api", meetingRoutes);
 
 /* ── 404 Not Found Handler ───────────────────────────────── */
@@ -78,6 +72,18 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 /* ── Start Server ────────────────────────────────────────── */
-app.listen(PORT, "127.0.0.1", () => {
+const server = app.listen(PORT, "127.0.0.1", () => {
   console.log(`🚀 Meeting Agent Backend listening on http://127.0.0.1:${PORT}`);
 });
+
+/* ── Graceful Shutdown ───────────────────────────────────── */
+async function handleShutdown(signal: string) {
+  console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
+  server.close(async () => {
+    await closeDB();
+    process.exit(0);
+  });
+}
+
+process.on("SIGTERM", () => handleShutdown("SIGTERM"));
+process.on("SIGINT", () => handleShutdown("SIGINT"));

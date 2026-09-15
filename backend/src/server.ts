@@ -13,6 +13,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 
+// Trust proxy header for Ngrok / reverse proxy support
+app.set("trust proxy", 1);
+
 // Connect to MongoDB
 connectDB();
 

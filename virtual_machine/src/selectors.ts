@@ -41,3 +41,14 @@ export const askToJoinButtonSelectors = [
   'button:has-text("Ask to join")',
   'span:has-text("Ask to join")',
 ] as const;
+
+export const callEndedSelectors = [
+  'button:has-text("Return to home screen")',
+  'a:has-text("Return to home screen")',
+  'button:has-text("Rejoin")',
+  'span:has-text("Return to home screen")',
+  'text="You left the meeting"',
+  'text="You\'ve been removed from the meeting"',
+  'text="The meeting has ended"',
+  'text="Ready to rejoin?"',
+] as const;

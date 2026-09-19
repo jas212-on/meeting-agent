@@ -17,8 +17,8 @@ async function createWebsocketCall(
       },
     },
     assistantOverrides: {
-      firstMessageMode: "assistant-speaks-first",
-      silenceTimeoutSeconds: 180,
+      firstMessageMode: "assistant-waits-for-user",
+      silenceTimeoutSeconds: 1200,
     },
   };
 

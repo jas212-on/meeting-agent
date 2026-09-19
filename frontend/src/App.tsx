@@ -15,6 +15,14 @@ interface UserProfile {
 const MEET_RE = /^https:\/\/meet\.google\.com\/[\w-]+(\/|\?|#|$)/i;
 const LOCAL_STORAGE_KEY = "meetminutes_history_v1";
 
+const apiFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("ngrok-skip-browser-warning")) {
+    headers.set("ngrok-skip-browser-warning", "true");
+  }
+  return fetch(input, { ...init, headers });
+};
+
 function App() {
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState<Status>("idle");
@@ -111,7 +119,7 @@ function App() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const res = await fetch("/api/meetings", { headers });
+      const res = await apiFetch("/api/meetings", { headers });
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.meetings)) {
@@ -135,7 +143,7 @@ function App() {
 
     const fetchMe = async () => {
       try {
-        const res = await fetch("/api/auth/me", {
+        const res = await apiFetch("/api/auth/me", {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -191,7 +199,7 @@ function App() {
         if (token) {
           headers["Authorization"] = `Bearer ${token}`;
         }
-        await fetch("/api/meetings", {
+        await apiFetch("/api/meetings", {
           method: "POST",
           headers,
           body: JSON.stringify(newRecord),
@@ -216,7 +224,7 @@ function App() {
   useEffect(() => {
     const poll = setInterval(async () => {
       try {
-        const res = await fetch("/api/status");
+        const res = await apiFetch("/api/status");
         if (res.ok) {
           setIsBackendOnline(true);
           const data = (await res.json()) as { status: Status };
@@ -266,7 +274,7 @@ function App() {
           headers["Authorization"] = `Bearer ${token}`;
         }
 
-        const res = await fetch("/api/join", {
+        const res = await apiFetch("/api/join", {
           method: "POST",
           headers,
           body: JSON.stringify({ url: meetingUrl }),
@@ -320,7 +328,7 @@ function App() {
         if (token) {
           headers["Authorization"] = `Bearer ${token}`;
         }
-        await fetch("/api/leave", { method: "POST", headers });
+        await apiFetch("/api/leave", { method: "POST", headers });
       } catch {
         // continue
       }
@@ -361,7 +369,7 @@ function App() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      await fetch(`/api/meetings/${meetingId}`, {
+      await apiFetch(`/api/meetings/${meetingId}`, {
         method: "DELETE",
         headers,
       });
@@ -416,7 +424,7 @@ function App() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      await fetch(`/api/meetings/${meetingId}/actions/${actionId}`, {
+      await apiFetch(`/api/meetings/${meetingId}/actions/${actionId}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify({ completed: nextCompleted }),
@@ -439,7 +447,7 @@ function App() {
         : { name: authName, email: authEmail, password: authPassword };
 
     try {
-      const res = await fetch(endpoint, {
+      const res = await apiFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

@@ -1,11 +1,25 @@
 import express from "express";
 import cors from "cors";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, exec, type ChildProcess } from "node:child_process";
 import path from "node:path";
 
 const app = express();
 const PORT = 3001;
 const VM_DIR = path.resolve(import.meta.dirname, "..", "virtual_machine");
+
+function killProcessTree(pid: number): void {
+  if (process.platform === "win32") {
+    exec(`taskkill /pid ${pid} /T /F`, () => {});
+  } else {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+  }
+}
 
 app.use(cors());
 app.use(express.json());
@@ -86,20 +100,38 @@ app.post("/api/join", (req, res) => {
 });
 
 /* ── POST /api/leave ─────────────────────────────────────── */
-app.post("/api/leave", (_req, res) => {
+app.post("/api/leave", async (_req, res) => {
   if (!activeProcess) return res.status(404).json({ error: "No active session" });
 
   broadcast("[dashboard] Leaving meeting...");
-  activeProcess.kill("SIGTERM");
-  // Force-kill after 5 seconds
+  const proc = activeProcess;
+  const pid = proc.pid;
+
+  // 1. Attempt graceful leave via control server if available
+  try {
+    await fetch("http://127.0.0.1:4712/leave", {
+      method: "POST",
+      signal: AbortSignal.timeout(1500),
+    });
+  } catch {
+    // Fall back to signal/kill if control server is unreachable
+  }
+
+  // 2. Force-kill entire process tree if still running after 3 seconds
   const timer = setTimeout(() => {
-    if (activeProcess) {
-      activeProcess.kill("SIGKILL");
+    if (activeProcess && pid) {
+      broadcast("[dashboard] Force-terminating session process tree...");
+      killProcessTree(pid);
       activeProcess = null;
       status = "idle";
     }
-  }, 5000);
-  activeProcess.on("close", () => clearTimeout(timer));
+  }, 3000);
+
+  proc.once("close", () => {
+    clearTimeout(timer);
+    activeProcess = null;
+    status = "idle";
+  });
 
   return res.json({ ok: true });
 });

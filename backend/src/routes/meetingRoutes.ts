@@ -1,5 +1,5 @@
 import { Router, type Response } from "express";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, exec, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { optionalAuth, AuthRequest } from "../middleware/auth.js";
@@ -8,6 +8,20 @@ const router = Router();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VM_DIR = path.resolve(__dirname, "..", "..", "..", "virtual_machine");
+
+function killProcessTree(pid: number): void {
+  if (process.platform === "win32") {
+    exec(`taskkill /pid ${pid} /T /F`, () => {});
+  } else {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+  }
+}
 
 /* ── Session state ───────────────────────────────────────── */
 let activeProcess: ChildProcess | null = null;
@@ -91,23 +105,41 @@ router.post("/join", optionalAuth, (req: AuthRequest, res: Response): void => {
 });
 
 /* ── POST /api/leave ─────────────────────────────────────── */
-router.post("/leave", (_req, res: Response): void => {
+router.post("/leave", async (_req, res: Response): Promise<void> => {
   if (!activeProcess) {
     res.status(404).json({ error: "No active session" });
     return;
   }
 
   broadcast("[dashboard] Leaving meeting...");
-  activeProcess.kill("SIGTERM");
-  // Force-kill after 5 seconds
+  const proc = activeProcess;
+  const pid = proc.pid;
+
+  // 1. Attempt graceful leave via control server if available
+  try {
+    await fetch("http://127.0.0.1:4712/leave", {
+      method: "POST",
+      signal: AbortSignal.timeout(1500),
+    });
+  } catch {
+    // Fall back to signal/kill if control server is unreachable
+  }
+
+  // 2. Force-kill entire process tree if still running after 3 seconds
   const timer = setTimeout(() => {
-    if (activeProcess) {
-      activeProcess.kill("SIGKILL");
+    if (activeProcess && pid) {
+      broadcast("[dashboard] Force-terminating session process tree...");
+      killProcessTree(pid);
       activeProcess = null;
       status = "idle";
     }
-  }, 5000);
-  activeProcess.on("close", () => clearTimeout(timer));
+  }, 3000);
+
+  proc.once("close", () => {
+    clearTimeout(timer);
+    activeProcess = null;
+    status = "idle";
+  });
 
   res.json({ ok: true });
 });

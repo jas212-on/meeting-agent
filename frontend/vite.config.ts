@@ -6,10 +6,14 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
+    host: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:3001',
+        target: 'https://datebook-tribunal-smite.ngrok-free.dev',
         changeOrigin: true,
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
+        },
       },
       '/control': {
         target: 'http://127.0.0.1:4712',

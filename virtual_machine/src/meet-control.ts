@@ -6,7 +6,10 @@ const sleep = (ms: number): Promise<void> =>
 
 export async function getMicState(page: Page): Promise<{ buttonFound: boolean; isMuted: boolean }> {
   try {
-    const micBtn = page.locator('button[aria-label*="microphone" i], button[aria-label*="mic" i], button[data-is-muted]').first();
+    const micBtn = page.locator(
+      'button[aria-label*="microphone" i], button[aria-label*="mic" i], button[data-is-muted], ' +
+      'div[role="button"][aria-label*="microphone" i], div[role="button"][aria-label*="mic" i], div[role="button"][data-is-muted]'
+    ).first();
     const exists = await micBtn.isVisible({ timeout: 1_000 }).catch(() => false);
     if (!exists) return { buttonFound: false, isMuted: true };
 
@@ -42,7 +45,10 @@ export async function setMic(page: Page, on: boolean): Promise<void> {
         return;
       }
 
-      const micBtn = page.locator('button[aria-label*="microphone" i], button[aria-label*="mic" i], button[data-is-muted]').first();
+      const micBtn = page.locator(
+        'button[aria-label*="microphone" i], button[aria-label*="mic" i], button[data-is-muted], ' +
+        'div[role="button"][aria-label*="microphone" i], div[role="button"][aria-label*="mic" i], div[role="button"][data-is-muted]'
+      ).first();
       if (await micBtn.isVisible({ timeout: 1_000 }).catch(() => false)) {
         await micBtn.click({ timeout: 1_500 }).catch(async () => {
           await page.keyboard.press("Control+d");

@@ -20,6 +20,10 @@ export const apiLimiter = rateLimit({
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Exempt real-time polling and streaming logs from rate limiting
+    return req.path === "/status" || req.path === "/logs" || req.path === "/health";
+  },
   message: {
     success: false,
     error: "Too many requests from this IP, please try again after a few minutes.",

@@ -2,8 +2,14 @@ import { chromium, type BrowserContext, type Page } from "playwright";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import readline from "node:readline";
+import type http from "node:http";
 import { parseConfig } from "./config.js";
-import { selectors, joinButtonSelectors, askToJoinButtonSelectors } from "./selectors.js";
+import {
+  selectors,
+  joinButtonSelectors,
+  askToJoinButtonSelectors,
+  callEndedSelectors,
+} from "./selectors.js";
 import { setMic, setCameraOff, leaveMeeting, dismissPopups } from "./meet-control.js";
 import {
   setSystemDefaultsForMeeting,
@@ -175,6 +181,94 @@ async function waitForAdmission(page: Page, timeoutMs: number): Promise<void> {
   throw new Error("Not admitted to the meeting within the timeout.");
 }
 
+function startCallMonitor(page: Page, onCallEnded: () => void): () => void {
+  let active = true;
+  let timer: NodeJS.Timeout | null = null;
+
+  const check = async () => {
+    if (!active || page.isClosed()) return;
+    try {
+      const url = page.url();
+      // Google Meet redirects to /landing or root domain after leaving
+      if (
+        url.includes("/landing") ||
+        url === "https://meet.google.com/" ||
+        url === "https://meet.google.com" ||
+        url.startsWith("https://meet.google.com/?")
+      ) {
+        log(`[CallMonitor] Google Meet left call room (URL: ${url}). Ending session...`);
+        active = false;
+        if (timer) clearInterval(timer);
+        onCallEnded();
+        return;
+      }
+
+      // Check for explicit call ended / left UI elements
+      for (const sel of callEndedSelectors) {
+        const isEnded = await page
+          .locator(sel)
+          .first()
+          .isVisible({ timeout: 200 })
+          .catch(() => false);
+        if (isEnded) {
+          log(`[CallMonitor] Detected meeting exit screen (found "${sel}"). Ending session...`);
+          active = false;
+          if (timer) clearInterval(timer);
+          onCallEnded();
+          return;
+        }
+      }
+
+      // Check if in-call controls disappeared
+      const inCall = await page
+        .locator(selectors.IN_CALL)
+        .first()
+        .isVisible({ timeout: 200 })
+        .catch(() => false);
+      if (!inCall) {
+        const alone = await page
+          .locator(selectors.ALONE)
+          .first()
+          .isVisible({ timeout: 200 })
+          .catch(() => false);
+        if (!alone) {
+          // Double-check after 2 seconds to avoid transient UI flashes
+          await sleep(2000);
+          if (!active || page.isClosed()) return;
+          const stillInCall = await page
+            .locator(selectors.IN_CALL)
+            .first()
+            .isVisible({ timeout: 300 })
+            .catch(() => false);
+          const stillAlone = await page
+            .locator(selectors.ALONE)
+            .first()
+            .isVisible({ timeout: 300 })
+            .catch(() => false);
+          if (!stillInCall && !stillAlone) {
+            log("[CallMonitor] In-call controls no longer visible. Ending session...");
+            active = false;
+            if (timer) clearInterval(timer);
+            onCallEnded();
+            return;
+          }
+        }
+      }
+    } catch {
+      // Ignore transient errors while page is navigating or closing
+    }
+  };
+
+  timer = setInterval(() => {
+    void check();
+  }, 2000);
+
+  return () => {
+    active = false;
+    if (timer) clearInterval(timer);
+  };
+}
+
 async function main(): Promise<void> {
   const config = parseConfig(process.argv);
   const vapiEnabled =
@@ -190,13 +284,24 @@ async function main(): Promise<void> {
   let audioDefaults: DefaultsState | undefined;
   let audioBridge: AudioBridge | undefined;
   let vapiBridge: VapiBridge | undefined;
-  let mode: "speak" | "listen" = "listen";
+  let controlServer: http.Server | undefined;
+  let stopCallMonitor: (() => void) | undefined;
+  let mode: "speak" | "listen" | undefined = undefined;
   let cleanedUp = false;
 
   const cleanup = async (): Promise<void> => {
     if (cleanedUp) return;
     cleanedUp = true;
     log("Cleaning up session...");
+    if (stopCallMonitor) {
+      stopCallMonitor();
+      stopCallMonitor = undefined;
+    }
+    try {
+      controlServer?.close();
+    } catch {
+      /* ignore */
+    }
     try {
       await vapiBridge?.stop();
     } catch {
@@ -208,7 +313,9 @@ async function main(): Promise<void> {
       /* ignore */
     }
     const page = context?.pages()[0];
-    if (page) await leaveMeeting(page).catch(() => {});
+    if (page && !page.isClosed()) {
+      await leaveMeeting(page).catch(() => {});
+    }
     try {
       await context?.close();
     } catch {
@@ -232,6 +339,10 @@ async function main(): Promise<void> {
     process.exit(0);
   };
 
+  process.on("SIGINT", () => void shutdown());
+  process.on("SIGTERM", () => void shutdown());
+
+
   try {
     if (vapiEnabled) {
       log("[Step 2] Checking svcl audio routing tool...");
@@ -251,6 +362,10 @@ async function main(): Promise<void> {
     }
 
     context = await launchContext(config.profileDir);
+    context.on("close", () => {
+      log("[Browser] Chrome browser closed. Initiating shutdown...");
+      void shutdown();
+    });
 
     const mediaHookScript = `
       (function() {
@@ -323,6 +438,10 @@ async function main(): Promise<void> {
 
     const page = context.pages()[0] ?? (await context.newPage());
     page.setDefaultTimeout(config.prejoinTimeoutMs);
+    page.on("close", () => {
+      log("[Meet] Google Meet tab was closed. Initiating shutdown...");
+      void shutdown();
+    });
     await page.addInitScript(mediaHookScript);
 
     page.on("console", (msg) => {
@@ -389,13 +508,27 @@ async function main(): Promise<void> {
     await waitForPrejoin(page, config.prejoinTimeoutMs);
     await fillName(page, config.displayName);
     await setCameraOff(page).catch(() => {});
+    await setMic(page, false).catch(() => {});
     await clickJoin(page);
     await waitForAdmission(page, config.admissionTimeoutMs);
     log("[Step 10] Successfully joined meeting.");
 
+    // Start background monitor for meeting ending
+    stopCallMonitor = startCallMonitor(page, () => {
+      log("[CallMonitor] Google Meet call ended. Initiating shutdown...");
+      void shutdown();
+    });
+
     try {
       await setCameraOff(page);
       log("[Step 10] Camera confirmed OFF.");
+    } catch {
+      /* non-critical */
+    }
+
+    try {
+      await setMic(page, false);
+      log("[Step 10] Microphone confirmed MUTED (listening mode).");
     } catch {
       /* non-critical */
     }
@@ -427,6 +560,9 @@ async function main(): Promise<void> {
       await vapiBridge.start();
       log("[Step 11] SUCCESS: Vapi Voice AI Agent connected and active.");
 
+      // Ensure Google Meet microphone is explicitly muted in listening mode upon joining
+      await setMode(false);
+
       log("=================================================");
       log("   ALL STEPS COMPLETED: AGENT ACTIVE & LISTENING ");
       log("=================================================");
@@ -444,7 +580,7 @@ async function main(): Promise<void> {
       });
 
       const controlPort = config.bridgePort + 1;
-      startControlServer(controlPort, {
+      controlServer = startControlServer(controlPort, {
         setAgentMuted: (muted) => {
           vapiBridge?.setMuted(muted);
           log(`Agent ${muted ? "MUTED" : "UNMUTED"} (via HTTP).`);
@@ -459,9 +595,6 @@ async function main(): Promise<void> {
       await setMic(page, false);
       log("Mic off. Press Ctrl+C to leave.");
     }
-
-    process.on("SIGINT", () => void shutdown());
-    process.on("SIGTERM", () => void shutdown());
   } catch (err) {
     log("CRITICAL ERROR ENCOUNTERED:", err instanceof Error ? err.message : String(err));
     await cleanup();

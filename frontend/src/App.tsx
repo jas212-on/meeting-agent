@@ -197,7 +197,7 @@ function App() {
         if (token) {
           headers["Authorization"] = `Bearer ${token}`;
         }
-        await apiFetch("/api/meetings", {
+        const res = await apiFetch("/api/meetings", {
           method: "POST",
           headers,
           body: JSON.stringify(newRecord),
@@ -387,7 +387,7 @@ function App() {
         if (token) {
           headers["Authorization"] = `Bearer ${token}`;
         }
-        await fetch("/api/meetings", {
+        await apiFetch("/api/meetings", {
           method: "POST",
           headers,
           body: JSON.stringify(sample),

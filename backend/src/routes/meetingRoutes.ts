@@ -308,7 +308,6 @@ router.post("/join", optionalAuth, async (req: AuthRequest, res: Response): Prom
 
 /* ── POST /api/leave ─────────────────────────────────────── */
 router.post("/leave", async (_req, res: Response): Promise<void> => {
-router.post("/leave", async (_req, res: Response): Promise<void> => {
   if (!activeProcess) {
     // If there is an active tracked session without activeProcess, finalize it
     if (currentMeetingId) {
@@ -336,7 +335,7 @@ router.post("/leave", async (_req, res: Response): Promise<void> => {
   }
 
   // 2. Force-kill entire process tree if still running after 3 seconds
-  const timer = setTimeout(() => {
+  const timer = setTimeout(async () => {
     if (activeProcess && pid) {
       broadcast("[dashboard] Force-terminating session process tree...");
       killProcessTree(pid);

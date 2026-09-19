@@ -123,9 +123,7 @@ function App() {
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.meetings)) {
-          if (data.meetings.length > 0) {
-            setMeetings(data.meetings);
-          }
+          setMeetings(data.meetings);
         }
       }
     } catch {
@@ -204,6 +202,9 @@ function App() {
           headers,
           body: JSON.stringify(newRecord),
         });
+        if (res.ok) {
+          fetchMeetings();
+        }
       } catch (err) {
         console.warn("Failed to persist meeting record to backend:", err);
       }
@@ -217,7 +218,7 @@ function App() {
         setNotification(null);
       }, 5000);
     },
-    [user, token]
+    [user, token, fetchMeetings]
   );
 
   /* ── Poll status & handle backend connectivity ─────────────── */
@@ -378,8 +379,24 @@ function App() {
     }
   };
 
-  const handleRestoreDefaults = () => {
+  const handleRestoreDefaults = async () => {
     setMeetings(INITIAL_MEETINGS);
+    for (const sample of INITIAL_MEETINGS) {
+      try {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+        await fetch("/api/meetings", {
+          method: "POST",
+          headers,
+          body: JSON.stringify(sample),
+        });
+      } catch (e) {
+        console.warn("Could not persist sample meeting to MongoDB:", e);
+      }
+    }
+    fetchMeetings();
   };
 
   const handleToggleActionItem = async (meetingId: string, actionId: string) => {

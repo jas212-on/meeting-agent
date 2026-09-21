@@ -135,7 +135,7 @@ export class VapiBridge {
     }
 
     // Drop silent padding frames when assistant is not in active speech
-    if (!this.assistantSpeaking && peak < 80) {
+    if (!this.assistantSpeaking && peak < 800) {
       return;
     }
 
@@ -152,14 +152,15 @@ export class VapiBridge {
       console.log("[VapiBridge] Assistant voice suppressed (agent is muted).");
     }
 
-    if (peak >= 80) {
+    // Only unmute if assistant is confirmed speaking or real speech amplitude is detected
+    if (this.assistantSpeaking || peak >= 800) {
       this.setSpeaking(true);
       if (this.speechTimeout) clearTimeout(this.speechTimeout);
       this.speechTimeout = setTimeout(() => {
         if (!this.assistantSpeaking) {
           this.setSpeaking(false);
         }
-      }, 1000);
+      }, 500);
     }
   }
 

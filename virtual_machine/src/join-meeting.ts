@@ -21,6 +21,7 @@ import { VapiBridge } from "./vapi-bridge.js";
 import { startControlServer } from "./control-server.js";
 import { startChatWatcher, sendChatMessage } from "./meet-chat.js";
 import { generateChatReply } from "./chat-responder.js";
+import { startAttendanceTracker, type AttendanceTracker } from "./attendance-tracker.js";
 
 const log = (...msg: unknown[]): void =>
   console.log(`[${new Date().toISOString()}]`, ...msg);
@@ -297,6 +298,7 @@ async function main(): Promise<void> {
   let controlServer: http.Server | undefined;
   let stopCallMonitor: (() => void) | undefined;
   let stopChatWatcher: (() => void) | undefined;
+  let attendanceTracker: AttendanceTracker | undefined;
   let mode: "speak" | "listen" | undefined = undefined;
   let cleanedUp = false;
 
@@ -304,6 +306,14 @@ async function main(): Promise<void> {
     if (cleanedUp) return;
     cleanedUp = true;
     log("Cleaning up session...");
+    if (attendanceTracker) {
+      try {
+        await attendanceTracker.stop();
+      } catch (err) {
+        log("Warning: could not finalize attendance tracker:", err);
+      }
+      attendanceTracker = undefined;
+    }
     if (stopChatWatcher) {
       stopChatWatcher();
       stopChatWatcher = undefined;
@@ -404,7 +414,22 @@ async function main(): Promise<void> {
           Object.defineProperty(navigator, 'webdriver', { get: function() { return undefined; } });
         } catch (e) {}
 
-        // 1. Intercept microphone capture to force CABLE Output and disable video
+        window.__meetAudioTracks = [];
+        window.__meetMicShouldBeEnabled = false;
+
+        window.__setMeetMicTrackEnabled = function(enabled) {
+          window.__meetMicShouldBeEnabled = Boolean(enabled);
+          if (window.__meetAudioTracks) {
+            window.__meetAudioTracks.forEach(function(track) {
+              if (track && track.readyState === 'live') {
+                track.enabled = Boolean(enabled);
+              }
+            });
+          }
+          console.log('[MediaHook] WebRTC audio track state set to: ' + (enabled ? 'LIVE (unmuted)' : 'MUTED (silent)'));
+        };
+
+        // 1. Intercept microphone capture to force CABLE Output, disable video, and enforce track muting
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
           var origGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
           navigator.mediaDevices.getUserMedia = async function(constraints) {
@@ -444,7 +469,17 @@ async function main(): Promise<void> {
               } catch (err) {
                 console.warn('[MediaHook] Error selecting CABLE Output microphone:', err);
               }
-              return origGetUserMedia(constraints);
+              var stream = await origGetUserMedia(constraints);
+              stream.getAudioTracks().forEach(function(track) {
+                // Initialize track mute state to current setting (defaults to false / muted)
+                track.enabled = window.__meetMicShouldBeEnabled;
+                window.__meetAudioTracks.push(track);
+                track.onended = function() {
+                  var idx = window.__meetAudioTracks.indexOf(track);
+                  if (idx !== -1) window.__meetAudioTracks.splice(idx, 1);
+                };
+              });
+              return stream;
             }
 
             // If only video was requested without audio, return a disabled empty video stream
@@ -539,6 +574,22 @@ async function main(): Promise<void> {
     await clickJoin(page);
     await waitForAdmission(page, config.admissionTimeoutMs);
     log("[Step 10] Successfully joined meeting.");
+
+    // Start real-time attendance tracker
+    try {
+      const meetIdMatch = config.meetUrl.match(/meet\.google\.com\/([a-zA-Z0-9_-]+)/i);
+      const meetId = meetIdMatch ? meetIdMatch[1] : "session";
+      log("[Step 10] Starting real-time participant attendance tracking...");
+      attendanceTracker = await startAttendanceTracker({
+        page,
+        meetingId: meetId,
+        meetingStartTime: Date.now(),
+        botDisplayName: config.displayName || "MeetMinutes",
+      });
+      log("[Step 10] Attendance tracker active (tracking entries, exits, and rejoins).");
+    } catch (err) {
+      log("Warning: could not start attendance tracker:", err);
+    }
 
     // Start background monitor for meeting ending
     stopCallMonitor = startCallMonitor(page, () => {

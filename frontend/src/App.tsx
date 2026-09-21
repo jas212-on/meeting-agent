@@ -125,6 +125,15 @@ function App() {
         const data = await res.json();
         if (data.success && Array.isArray(data.meetings)) {
           setMeetings(data.meetings);
+          // If drawer is open, refresh selected meeting with fresh data from database
+          setSelectedMeeting((prev) => {
+            if (!prev) return null;
+            const targetId = prev.id || (prev as any).meetingId;
+            const fresh = data.meetings.find(
+              (m: any) => (m.meetingId || m.id) === targetId
+            );
+            return fresh || prev;
+          });
         }
       }
     } catch {
@@ -170,6 +179,14 @@ function App() {
       es.onmessage = (e) => {
         const line = JSON.parse(e.data) as string;
         setLogs((prev) => [...prev.slice(-200), line]);
+        if (
+          line.includes("successfully recorded in MongoDB Atlas") ||
+          line.includes("Process exited with code")
+        ) {
+          setTimeout(() => {
+            fetchMeetings();
+          }, 600);
+        }
       };
       es.onerror = () => {
         es.close();
@@ -178,37 +195,35 @@ function App() {
     } catch {
       // Backend not running
     }
-  }, []);
+  }, [fetchMeetings]);
 
   /* ── Complete meeting & record history in database ────────── */
   const finalizeMeetingSession = useCallback(
     async (meetingUrl: string, durationSecs: number) => {
       if (!meetingUrl) return;
       const effectiveSecs = Math.max(8, durationSecs);
-      const newRecord = createNewMeetingRecord(meetingUrl, effectiveSecs, user);
 
-      setMeetings((prev) => [newRecord, ...prev.filter((m) => m.id !== newRecord.id)]);
-      setSelectedMeeting(newRecord);
-      setDrawerInitialTab("minutes");
+      // Trigger immediate fetch to get latest from DB
+      fetchMeetings();
+
+      setDrawerInitialTab("attendance");
       setIsDrawerOpen(true);
-      setNotification(`Meeting ${newRecord.id} completed! AI summary & minutes ready.`);
+      setNotification(`Meeting concluded. Syncing attendance & AI summary...`);
 
-      // Persist record to MongoDB Atlas
-      try {
-        const headers: Record<string, string> = { "Content-Type": "application/json" };
-        if (token) {
-          headers["Authorization"] = `Bearer ${token}`;
-        }
-        const res = await apiFetch("/api/meetings", {
-          method: "POST",
-          headers,
-          body: JSON.stringify(newRecord),
-        });
-        if (res.ok) {
+      // If backend is offline, save local fallback record
+      if (!isBackendOnline) {
+        const fallbackRecord = createNewMeetingRecord(meetingUrl, effectiveSecs, user);
+        setMeetings((prev) => [
+          fallbackRecord,
+          ...prev.filter((m) => m.id !== fallbackRecord.id),
+        ]);
+        setSelectedMeeting(fallbackRecord);
+      } else {
+        // Poll for 12 seconds to ensure backend DB upsert is captured
+        const interval = setInterval(() => {
           fetchMeetings();
-        }
-      } catch (err) {
-        console.warn("Failed to persist meeting record to backend:", err);
+        }, 1200);
+        setTimeout(() => clearInterval(interval), 12000);
       }
 
       // Reset timer references
@@ -220,7 +235,7 @@ function App() {
         setNotification(null);
       }, 5000);
     },
-    [user, token, fetchMeetings]
+    [user, isBackendOnline, fetchMeetings]
   );
 
   /* ── Poll status & handle backend connectivity ─────────────── */

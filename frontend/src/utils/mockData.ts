@@ -22,6 +22,15 @@ export const INITIAL_MEETINGS: MeetingRecord[] = [
         leftAt: "09:12 PM",
         speakingTimePct: 38,
         status: "Present",
+        rejoinCount: 0,
+        totalDurationSeconds: 2520,
+        intervals: [
+          {
+            joinedAt: "08:30:15 PM",
+            leftAt: "09:12:15 PM",
+            durationSeconds: 2520,
+          },
+        ],
       },
       {
         id: "att-2",
@@ -33,6 +42,15 @@ export const INITIAL_MEETINGS: MeetingRecord[] = [
         leftAt: "09:12 PM",
         speakingTimePct: 29,
         status: "Present",
+        rejoinCount: 0,
+        totalDurationSeconds: 2460,
+        intervals: [
+          {
+            joinedAt: "08:31:00 PM",
+            leftAt: "09:12:00 PM",
+            durationSeconds: 2460,
+          },
+        ],
       },
       {
         id: "att-3",
@@ -43,7 +61,21 @@ export const INITIAL_MEETINGS: MeetingRecord[] = [
         joinedAt: "08:32 PM",
         leftAt: "09:10 PM",
         speakingTimePct: 21,
-        status: "Present",
+        status: "Rejoined",
+        rejoinCount: 1,
+        totalDurationSeconds: 2040,
+        intervals: [
+          {
+            joinedAt: "08:32:10 PM",
+            leftAt: "08:50:10 PM",
+            durationSeconds: 1080,
+          },
+          {
+            joinedAt: "08:54:10 PM",
+            leftAt: "09:10:10 PM",
+            durationSeconds: 960,
+          },
+        ],
       },
       {
         id: "att-4",
@@ -55,6 +87,15 @@ export const INITIAL_MEETINGS: MeetingRecord[] = [
         leftAt: "08:58 PM",
         speakingTimePct: 7,
         status: "Left Early",
+        rejoinCount: 0,
+        totalDurationSeconds: 1380,
+        intervals: [
+          {
+            joinedAt: "08:35:00 PM",
+            leftAt: "08:58:00 PM",
+            durationSeconds: 1380,
+          },
+        ],
       },
       {
         id: "att-5",
@@ -66,6 +107,15 @@ export const INITIAL_MEETINGS: MeetingRecord[] = [
         leftAt: "09:12 PM",
         speakingTimePct: 5,
         status: "Present",
+        rejoinCount: 0,
+        totalDurationSeconds: 2520,
+        intervals: [
+          {
+            joinedAt: "08:30:10 PM",
+            leftAt: "09:12:10 PM",
+            durationSeconds: 2520,
+          },
+        ],
       },
     ],
     minutes: {
@@ -266,8 +316,17 @@ export function createNewMeetingRecord(
       avatarColor: "#6366f1",
       joinedAt: formattedTime,
       leftAt: "Session End",
-      speakingTimePct: 42,
+      speakingTimePct: 55,
       status: "Present",
+      rejoinCount: 0,
+      totalDurationSeconds: durationSeconds,
+      intervals: [
+        {
+          joinedAt: formattedTime,
+          leftAt: "Session End",
+          durationSeconds,
+        },
+      ],
     },
     {
       id: `att-bot-${Date.now()}`,
@@ -277,19 +336,17 @@ export function createNewMeetingRecord(
       avatarColor: "#10b981",
       joinedAt: formattedTime,
       leftAt: "Session End",
-      speakingTimePct: 28,
+      speakingTimePct: 45,
       status: "Present",
-    },
-    {
-      id: `att-guest-${Date.now()}`,
-      name: "Team Collaborator",
-      email: "collaborator@organization.com",
-      role: "Attendee",
-      avatarColor: "#f59e0b",
-      joinedAt: formattedTime,
-      leftAt: "Session End",
-      speakingTimePct: 30,
-      status: "Present",
+      rejoinCount: 0,
+      totalDurationSeconds: durationSeconds,
+      intervals: [
+        {
+          joinedAt: formattedTime,
+          leftAt: "Session End",
+          durationSeconds,
+        },
+      ],
     },
   ];
 

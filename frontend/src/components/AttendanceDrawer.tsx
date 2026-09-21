@@ -20,6 +20,72 @@ export function AttendanceDrawer({
   const [activeTab, setActiveTab] = useState<"attendance" | "minutes">(initialTab);
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [expandedAttendeeId, setExpandedAttendeeId] = useState<string | null>(null);
+
+  const formatSecs = (sec: number): string => {
+    if (sec < 60) return `${sec}s`;
+    const mins = Math.floor(sec / 60);
+    const rem = sec % 60;
+    return rem > 0 ? `${mins}m ${rem}s` : `${mins}m`;
+  };
+
+  const handleExportCSV = () => {
+    if (!meeting) return;
+    const headers = [
+      "Name",
+      "Email",
+      "Role",
+      "Status",
+      "First Joined At",
+      "Last Left At",
+      "Rejoin Count",
+      "Total Active Seconds",
+      "Total Active Duration",
+      "Speaking Time Pct",
+      "Session Intervals",
+    ];
+
+    const rows = meeting.attendees.map((att) => {
+      const sessionStr = (att.intervals || [])
+        .map(
+          (int, i) =>
+            `Session ${i + 1}: ${int.joinedAt} - ${int.leftAt} (${formatSecs(int.durationSeconds)})`
+        )
+        .join(" | ");
+
+      const totalSec =
+        att.totalDurationSeconds ||
+        (att.intervals || []).reduce((s, i) => s + (i.durationSeconds || 0), 0);
+
+      return [
+        `"${att.name.replace(/"/g, '""')}"`,
+        `"${att.email || ""}"`,
+        `"${att.role}"`,
+        `"${att.status}"`,
+        `"${att.joinedAt}"`,
+        `"${att.leftAt}"`,
+        att.rejoinCount || 0,
+        totalSec,
+        `"${formatSecs(totalSec)}"`,
+        `"${att.speakingTimePct}%"`,
+        `"${sessionStr.replace(/"/g, '""')}"`,
+      ];
+    });
+
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute(
+      "download",
+      `Attendance_${meeting.id}_${meeting.date.replace(/[^a-zA-Z0-9]/g, "_")}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -141,7 +207,17 @@ export function AttendanceDrawer({
               </div>
 
               {/* Attendee List */}
-              <h3 className="section-subtitle">Participant Roster & Activity</h3>
+              <div className="roster-header-row">
+                <h3 className="section-subtitle">Participant Roster & Activity</h3>
+                <button
+                  className="export-attendance-btn"
+                  onClick={handleExportCSV}
+                  title="Export complete attendance record to CSV"
+                >
+                  📥 Export CSV
+                </button>
+              </div>
+
               <div className="attendees-list">
                 {meeting.attendees.map((attendee) => {
                   const initials = attendee.name
@@ -150,6 +226,10 @@ export function AttendanceDrawer({
                     .join("")
                     .slice(0, 2)
                     .toUpperCase();
+
+                  const isExpanded = expandedAttendeeId === attendee.id;
+                  const hasIntervals =
+                    attendee.intervals && attendee.intervals.length > 0;
 
                   return (
                     <div key={attendee.id} className="attendee-card">
@@ -174,15 +254,29 @@ export function AttendanceDrawer({
                           </div>
                         </div>
 
-                        <span
-                          className={`status-pill ${
-                            attendee.status === "Present"
-                              ? "status-present"
-                              : "status-flagged"
-                          }`}
-                        >
-                          {attendee.status}
-                        </span>
+                        <div className="attendee-status-group">
+                          {attendee.rejoinCount && attendee.rejoinCount > 0 ? (
+                            <span
+                              className="rejoin-pill"
+                              title={`Left and rejoined ${attendee.rejoinCount} time${
+                                attendee.rejoinCount > 1 ? "s" : ""
+                              }`}
+                            >
+                              🔄 Rejoined {attendee.rejoinCount}×
+                            </span>
+                          ) : null}
+                          <span
+                            className={`status-pill ${
+                              attendee.status === "Present"
+                                ? "status-present"
+                                : attendee.status === "Rejoined"
+                                ? "status-rejoined"
+                                : "status-flagged"
+                            }`}
+                          >
+                            {attendee.status}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Speaking activity & timeline */}
@@ -201,10 +295,57 @@ export function AttendanceDrawer({
                           />
                         </div>
 
-                        <div className="attendee-timeline">
-                          <span>Joined: {attendee.joinedAt}</span>
-                          <span>Left: {attendee.leftAt}</span>
+                        <div className="attendee-timeline-row">
+                          <div className="attendee-timeline">
+                            <span>First Joined: {attendee.joinedAt}</span>
+                            <span>Last Left: {attendee.leftAt}</span>
+                            {attendee.totalDurationSeconds ? (
+                              <span className="timeline-total-time">
+                                Active: {formatSecs(attendee.totalDurationSeconds)}
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {hasIntervals && (
+                            <button
+                              type="button"
+                              className="session-toggle-btn"
+                              onClick={() =>
+                                setExpandedAttendeeId(isExpanded ? null : attendee.id)
+                              }
+                            >
+                              {isExpanded
+                                ? "▲ Hide Sessions"
+                                : `▼ ${attendee.intervals!.length} Session${
+                                    attendee.intervals!.length > 1 ? "s" : ""
+                                  }`}
+                            </button>
+                          )}
                         </div>
+
+                        {/* Expandable Session Timeline */}
+                        {isExpanded && hasIntervals && (
+                          <div className="attendee-sessions-breakdown">
+                            <div className="sessions-breakdown-title">
+                              Entry &amp; Exit Log
+                            </div>
+                            <div className="sessions-list">
+                              {attendee.intervals!.map((interval, idx) => (
+                                <div key={idx} className="session-item">
+                                  <span className="session-tag">Session {idx + 1}</span>
+                                  <div className="session-timestamps">
+                                    <span className="session-in">🟢 {interval.joinedAt}</span>
+                                    <span className="session-arrow">→</span>
+                                    <span className="session-out">🔴 {interval.leftAt}</span>
+                                  </div>
+                                  <span className="session-duration">
+                                    ⏱ {formatSecs(interval.durationSeconds)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

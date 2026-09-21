@@ -5,27 +5,31 @@ const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function getMicState(page: Page): Promise<{ buttonFound: boolean; isMuted: boolean }> {
+  if (page.isClosed()) return { buttonFound: false, isMuted: true };
   try {
-    const micBtn = page.locator(
-      'button[aria-label*="microphone" i], button[aria-label*="mic" i], button[data-is-muted], ' +
-      'div[role="button"][aria-label*="microphone" i], div[role="button"][aria-label*="mic" i], div[role="button"][data-is-muted]'
-    ).first();
-    const exists = await micBtn.isVisible({ timeout: 1_000 }).catch(() => false);
-    if (!exists) return { buttonFound: false, isMuted: true };
+    return await page.evaluate(`(() => {
+      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      const micBtn = buttons.find((b) => {
+        const aria = (b.getAttribute("aria-label") || "").toLowerCase();
+        return (
+          (aria.includes("microphone") || aria.includes(" mic")) &&
+          (aria.includes("turn on") || aria.includes("turn off") || aria.includes("ctrl + d") || aria.includes("mute"))
+        );
+      });
 
-    const isMutedAttr = await micBtn.getAttribute("data-is-muted", { timeout: 1_000 }).catch(() => null);
-    const ariaLabel = (await micBtn.getAttribute("aria-label", { timeout: 1_000 }).catch(() => "")) || "";
+      if (!micBtn) return { buttonFound: false, isMuted: true };
 
-    if (isMutedAttr !== null) {
-      return { buttonFound: true, isMuted: isMutedAttr === "true" };
-    }
-    if (/turn on microphone/i.test(ariaLabel)) {
+      const isMutedAttr = micBtn.getAttribute("data-is-muted");
+      const aria = (micBtn.getAttribute("aria-label") || "").toLowerCase();
+
+      if (isMutedAttr === "true") return { buttonFound: true, isMuted: true };
+      if (isMutedAttr === "false") return { buttonFound: true, isMuted: false };
+
+      if (aria.includes("turn on")) return { buttonFound: true, isMuted: true };
+      if (aria.includes("turn off")) return { buttonFound: true, isMuted: false };
+
       return { buttonFound: true, isMuted: true };
-    }
-    if (/turn off microphone/i.test(ariaLabel)) {
-      return { buttonFound: true, isMuted: false };
-    }
-    return { buttonFound: true, isMuted: true };
+    })()`);
   } catch {
     return { buttonFound: false, isMuted: true };
   }
@@ -35,33 +39,70 @@ let micToggleLock = Promise.resolve();
 
 export async function setMic(page: Page, on: boolean): Promise<void> {
   micToggleLock = micToggleLock.then(async () => {
+    if (page.isClosed()) return;
     try {
       await page.bringToFront().catch(() => {});
-      const { buttonFound, isMuted } = await getMicState(page);
-      const isCurrentlyOn = !isMuted;
-      console.log(`[MeetControl] Step: Setting Google Meet mic state (Current: ${isCurrentlyOn ? "ON (unmuted)" : "OFF (muted)"} -> Target: ${on ? "ON" : "OFF"})...`);
-      if (buttonFound && on === isCurrentlyOn) {
+
+      // 1. Immediately toggle browser-level WebRTC MediaStreamTrack (instant silence at the audio driver level)
+      await page.evaluate(`((on) => {
+        if (typeof window.__setMeetMicTrackEnabled === 'function') {
+          window.__setMeetMicTrackEnabled(on);
+        }
+      })(${on})`).catch(() => {});
+
+      // Move mouse slightly to ensure Google Meet's bottom toolbar is visible
+      await page.mouse.move(500, 500).catch(() => {});
+
+      const current = await getMicState(page);
+      const isCurrentlyOn = !current.isMuted;
+      console.log(
+        `[MeetControl] Step: Setting Google Meet mic state (Current: ${isCurrentlyOn ? "ON (unmuted)" : "OFF (muted)"} -> Target: ${on ? "ON" : "OFF"}, buttonFound: ${current.buttonFound})...`
+      );
+
+      if (current.buttonFound && on === isCurrentlyOn) {
         console.log(`[MeetControl] Google Meet mic is already ${on ? "ON" : "OFF"}, no toggle needed.`);
         return;
       }
 
-      const micBtn = page.locator(
-        'button[aria-label*="microphone" i], button[aria-label*="mic" i], button[data-is-muted], ' +
-        'div[role="button"][aria-label*="microphone" i], div[role="button"][aria-label*="mic" i], div[role="button"][data-is-muted]'
-      ).first();
-      if (await micBtn.isVisible({ timeout: 1_000 }).catch(() => false)) {
-        await micBtn.click({ timeout: 1_500 }).catch(async () => {
-          await page.keyboard.press("Control+d");
+      // Try clicking the specific mic button in page
+      const clicked = await page.evaluate(`(() => {
+        const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+        const micBtn = buttons.find((b) => {
+          const aria = (b.getAttribute("aria-label") || "").toLowerCase();
+          return (
+            (aria.includes("microphone") || aria.includes(" mic")) &&
+            (aria.includes("turn on") || aria.includes("turn off") || aria.includes("ctrl + d") || aria.includes("mute"))
+          );
         });
-      } else {
+        if (micBtn) {
+          micBtn.click();
+          return true;
+        }
+        return false;
+      })()`).catch(() => false);
+
+      if (!clicked) {
+        console.log("[MeetControl] Mic button not clicked directly, pressing Control+d...");
         await page.keyboard.press("Control+d");
       }
-      await sleep(300);
+
+      await sleep(350);
+
+      // Verify the state after toggle
       const after = await getMicState(page);
-      console.log(`[MeetControl] SUCCESS: Google Meet mic state is now: ${!after.isMuted ? "ON (unmuted)" : "OFF (muted)"}`);
+      const nowOn = !after.isMuted;
+      console.log(`[MeetControl] SUCCESS: Google Meet mic state is now: ${nowOn ? "ON (unmuted)" : "OFF (muted)"}`);
+
+      // If still not in the desired state, retry once with Control+d
+      if (after.buttonFound && nowOn !== on) {
+        console.warn(`[MeetControl] Mic state did not change as expected (expected ${on ? "ON" : "OFF"}, got ${nowOn ? "ON" : "OFF"}). Retrying with Control+d...`);
+        await page.keyboard.press("Control+d");
+        await sleep(350);
+        const retryState = await getMicState(page);
+        console.log(`[MeetControl] After retry, mic state is now: ${!retryState.isMuted ? "ON" : "OFF"}`);
+      }
     } catch (err) {
       console.error(`[MeetControl] FAILED to toggle Google Meet mic:`, err);
-      await page.keyboard.press("Control+d").catch(() => {});
     }
   });
   return micToggleLock;

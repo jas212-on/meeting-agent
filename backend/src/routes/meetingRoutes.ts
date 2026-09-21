@@ -1,5 +1,6 @@
 import { Router, type Response } from "express";
 import { spawn, exec, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { optionalAuth, AuthRequest } from "../middleware/auth.js";
@@ -39,6 +40,7 @@ let currentVapiCallId: string | null = null;
 let currentUserId: any = null;
 let currentUserName = "Meeting Host";
 let currentUserEmail = "host@meetminutes.ai";
+let recordedAttendees: any[] = [];
 
 function broadcast(line: string): void {
   logs.push(line);
@@ -118,40 +120,133 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
     }
   }
 
+  // 2b. Attempt to load recorded attendees from file if not yet captured from stdout
+  if (recordedAttendees.length === 0) {
+    try {
+      const scratchFile = path.join(VM_DIR, "scratch", `attendance-${meetingId}.json`);
+      if (fs.existsSync(scratchFile)) {
+        const fileContent = fs.readFileSync(scratchFile, "utf-8");
+        recordedAttendees = JSON.parse(fileContent);
+        broadcast(`[dashboard] 👥 Attendance loaded from scratch file (${recordedAttendees.length} participants).`);
+      }
+    } catch (err: any) {
+      console.warn("[dashboard] Could not read scratch attendance file:", err.message);
+    }
+  }
+
   // 3. Generate structured AI minutes via Groq LLM
+  const attendeeNamesList =
+    recordedAttendees.length > 0
+      ? recordedAttendees.map((a) => a.name)
+      : [currentUserName, "MeetMinutes AI Assistant"];
+
   broadcast("[dashboard] 🧠 Generating meeting minutes with Groq AI...");
   const minutes = await generateMeetingSummary(officialTranscript, {
     meetingId,
     meetingTitle: `Google Meet Session (${meetingId})`,
     duration: durationStr,
-    attendeeNames: [currentUserName, "MeetMinutes AI Assistant"],
+    attendeeNames: attendeeNamesList,
     fallbackTranscripts,
   });
 
-  const attendees = [
-    {
-      id: `att-host-${startTime}`,
-      name: currentUserName,
-      email: currentUserEmail,
-      role: "Host" as const,
-      avatarColor: "#6366f1",
-      joinedAt: new Date(startTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-      leftAt: endTimeStr,
-      speakingTimePct: 50,
-      status: "Present" as const,
-    },
-    {
-      id: `att-bot-${startTime}`,
-      name: "MeetMinutes AI Assistant",
-      email: "agent@meetminutes.ai",
-      role: "Speaker" as const,
-      avatarColor: "#10b981",
-      joinedAt: new Date(startTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-      leftAt: endTimeStr,
-      speakingTimePct: 40,
-      status: "Present" as const,
-    },
-  ];
+  // 4. Construct final attendees list with entry, leave, and rejoin intervals
+  let attendees: any[] = [];
+  if (recordedAttendees.length > 0) {
+    attendees = recordedAttendees.map((att: any, idx: number) => {
+      const totalSecs =
+        att.totalDurationSeconds ||
+        (att.intervals || []).reduce(
+          (sum: number, int: any) => sum + (int.durationSeconds || 0),
+          0
+        );
+      const pct =
+        durationSeconds > 0
+          ? Math.min(100, Math.round((totalSecs / durationSeconds) * 100))
+          : 50;
+
+      return {
+        id: att.id || `att-rec-${idx}-${startTime}`,
+        name: att.name,
+        email: att.email || `${att.name.toLowerCase().replace(/\s+/g, ".")}@meeting.attendee`,
+        role: att.role || (idx === 0 ? "Host" : "Attendee"),
+        avatarColor: att.avatarColor || "#6366f1",
+        joinedAt:
+          att.joinedAt ||
+          new Date(startTime).toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        leftAt: att.leftAt || endTimeStr,
+        speakingTimePct: att.speakingTimePct || Math.max(5, Math.min(60, Math.round(pct * 0.4))),
+        status: att.status || "Present",
+        rejoinCount: att.rejoinCount || 0,
+        totalDurationSeconds: totalSecs,
+        intervals: (att.intervals || []).map((interval: any) => ({
+          joinedAt: interval.joinedAt,
+          leftAt: interval.leftAt,
+          joinTimestamp: interval.joinTimestamp,
+          leaveTimestamp: interval.leaveTimestamp,
+          durationSeconds: interval.durationSeconds,
+        })),
+      };
+    });
+  } else {
+    // Fallback if no attendees were captured
+    attendees = [
+      {
+        id: `att-host-${startTime}`,
+        name: currentUserName,
+        email: currentUserEmail,
+        role: "Host" as const,
+        avatarColor: "#6366f1",
+        joinedAt: new Date(startTime).toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        leftAt: endTimeStr,
+        speakingTimePct: 50,
+        status: "Present" as const,
+        rejoinCount: 0,
+        totalDurationSeconds: durationSeconds,
+        intervals: [
+          {
+            joinedAt: new Date(startTime).toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            leftAt: endTimeStr,
+            durationSeconds,
+          },
+        ],
+      },
+      {
+        id: `att-bot-${startTime}`,
+        name: "MeetMinutes AI Assistant",
+        email: "agent@meetminutes.ai",
+        role: "Speaker" as const,
+        avatarColor: "#10b981",
+        joinedAt: new Date(startTime).toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        leftAt: endTimeStr,
+        speakingTimePct: 40,
+        status: "Present" as const,
+        rejoinCount: 0,
+        totalDurationSeconds: durationSeconds,
+        intervals: [
+          {
+            joinedAt: new Date(startTime).toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            leftAt: endTimeStr,
+            durationSeconds,
+          },
+        ],
+      },
+    ];
+  }
 
   try {
     const updateData: Record<string, any> = {
@@ -188,6 +283,8 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
     currentMeetingStartTime = null;
     currentVapiCallId = null;
     currentUserId = null;
+    recordedAttendees = [];
+    logs = [];
     isSavingMeeting = false;
   }
 }
@@ -297,6 +394,19 @@ router.post("/join", optionalAuth, async (req: AuthRequest, res: Response): Prom
       if (vapiMatch && vapiMatch[1]) {
         currentVapiCallId = vapiMatch[1];
         broadcast(`[dashboard] 🔗 Vapi Call Session linked: ${currentVapiCallId}`);
+      }
+
+      // Detect Attendance summary emitted by attendance-tracker
+      const attendanceMatch = text.match(/\[ATTENDANCE_DATA\]\s*(\[[\s\S]*\])/);
+      if (attendanceMatch && attendanceMatch[1]) {
+        try {
+          recordedAttendees = JSON.parse(attendanceMatch[1]);
+          broadcast(
+            `[dashboard] 👥 Attendance data captured: ${recordedAttendees.length} participants recorded.`
+          );
+        } catch (err: any) {
+          console.warn("[dashboard] Could not parse ATTENDANCE_DATA JSON:", err.message);
+        }
       }
     }
   });

@@ -1,3 +1,11 @@
+export interface AttendanceInterval {
+  joinedAt: string;
+  leftAt: string;
+  joinTimestamp?: number;
+  leaveTimestamp?: number;
+  durationSeconds: number;
+}
+
 export interface Attendee {
   id: string;
   name: string;
@@ -7,7 +15,10 @@ export interface Attendee {
   joinedAt: string;
   leftAt: string;
   speakingTimePct: number;
-  status: "Present" | "Left Early" | "Joined Late";
+  status: "Present" | "Left Early" | "Joined Late" | "Rejoined";
+  rejoinCount?: number;
+  totalDurationSeconds?: number;
+  intervals?: AttendanceInterval[];
 }
 
 export interface ActionItem {

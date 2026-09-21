@@ -1,5 +1,13 @@
 import mongoose, { Document, Model, Schema, Types } from "mongoose";
 
+export interface IAttendanceInterval {
+  joinedAt: string;
+  leftAt: string;
+  joinTimestamp?: number;
+  leaveTimestamp?: number;
+  durationSeconds: number;
+}
+
 export interface IAttendee {
   id: string;
   name: string;
@@ -9,7 +17,10 @@ export interface IAttendee {
   joinedAt: string;
   leftAt: string;
   speakingTimePct: number;
-  status: "Present" | "Left Early" | "Joined Late";
+  status: "Present" | "Left Early" | "Joined Late" | "Rejoined";
+  rejoinCount?: number;
+  totalDurationSeconds?: number;
+  intervals?: IAttendanceInterval[];
 }
 
 export interface IActionItem {
@@ -51,6 +62,17 @@ export interface IMeeting extends Document {
   updatedAt: Date;
 }
 
+const AttendanceIntervalSchema = new Schema<IAttendanceInterval>(
+  {
+    joinedAt: { type: String, default: "" },
+    leftAt: { type: String, default: "" },
+    joinTimestamp: { type: Number, default: 0 },
+    leaveTimestamp: { type: Number, default: 0 },
+    durationSeconds: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
 const AttendeeSchema = new Schema<IAttendee>(
   {
     id: { type: String, required: true },
@@ -67,9 +89,12 @@ const AttendeeSchema = new Schema<IAttendee>(
     speakingTimePct: { type: Number, default: 0, min: 0, max: 100 },
     status: {
       type: String,
-      enum: ["Present", "Left Early", "Joined Late"],
+      enum: ["Present", "Left Early", "Joined Late", "Rejoined"],
       default: "Present",
     },
+    rejoinCount: { type: Number, default: 0 },
+    totalDurationSeconds: { type: Number, default: 0 },
+    intervals: { type: [AttendanceIntervalSchema], default: [] },
   },
   { _id: false }
 );

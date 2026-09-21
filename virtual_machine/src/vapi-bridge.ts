@@ -5,7 +5,7 @@ const VAPI_API_BASE = "https://api.vapi.ai";
 async function createWebsocketCall(
   apiKey: string,
   assistantId: string,
-): Promise<{ url: string; callId: string }> {
+): Promise<{ url: string; callId: string; controlUrl?: string }> {
   const body = {
     assistantId,
     transport: {
@@ -40,23 +40,33 @@ async function createWebsocketCall(
     );
   }
 
-  const data = (await res.json()) as { id?: string; transport?: { websocketCallUrl?: string } };
+  const data = (await res.json()) as {
+    id?: string;
+    transport?: { websocketCallUrl?: string };
+    monitor?: { controlUrl?: string };
+  };
   const url = data?.transport?.websocketCallUrl;
   const callId = data?.id;
+  const controlUrl = data?.monitor?.controlUrl;
   if (!url || !callId) {
     console.error("[VapiBridge] FAILED: Vapi response missing transport.websocketCallUrl or call id:", JSON.stringify(data));
     throw new Error("Vapi response missing transport.websocketCallUrl or call id");
   }
   console.log(`[VapiBridge] Call created with ID: ${callId}`);
+  if (controlUrl) {
+    console.log(`[VapiBridge] Live Call Control URL obtained.`);
+  }
   console.log(`[VapiBridge] SUCCESS: Vapi call session created. WebSocket URL obtained.`);
-  return { url, callId };
+  return { url, callId, controlUrl };
 }
 
 export class VapiBridge {
   callId?: string;
+  controlUrl?: string;
   muted = false;
   isSpeaking = false;
   onAssistantAudio?: (pcm: Buffer) => void;
+  onClose?: (code: number, reason: string) => void;
 
   private ws?: WebSocket;
   private speechTimeout?: NodeJS.Timeout;
@@ -134,8 +144,9 @@ export class VapiBridge {
 
   async start(): Promise<void> {
     console.log("[VapiBridge] Step: Initializing Vapi connection...");
-    const { url, callId } = await createWebsocketCall(this.apiKey, this.assistantId);
+    const { url, callId, controlUrl } = await createWebsocketCall(this.apiKey, this.assistantId);
     this.callId = callId;
+    this.controlUrl = controlUrl;
     console.log("[VapiBridge] Step: Connecting to Vapi WebSocket endpoint...");
     this.ws = new WebSocket(url, {
       headers: { Authorization: `Bearer ${this.apiKey}` },
@@ -221,6 +232,7 @@ export class VapiBridge {
       console.log(`[VapiBridge] Vapi WebSocket closed (code: ${code}, reason: ${reason.toString() || "none"})`);
       if (this.speechTimeout) clearTimeout(this.speechTimeout);
       this.ws = undefined;
+      this.onClose?.(code, reason.toString() || "none");
     });
 
     this.ws.on("error", (err) => {
@@ -253,14 +265,45 @@ export class VapiBridge {
   async stop(): Promise<void> {
     console.log("[VapiBridge] Step: Stopping Vapi connection...");
     if (this.speechTimeout) clearTimeout(this.speechTimeout);
+
+    // 1. Send immediate end-call command to Vapi live call control if controlUrl is available
+    if (this.controlUrl) {
+      try {
+        console.log("[VapiBridge] Dispatching immediate end-call command to Vapi controlUrl...");
+        await fetch(this.controlUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            type: "end-call",
+            message: {
+              type: "control",
+              control: "end-call",
+            },
+          }),
+          signal: AbortSignal.timeout(2000),
+        }).catch(() => {});
+      } catch {
+        /* ignore */
+      }
+    }
+
     const ws = this.ws;
     this.ws = undefined;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       console.log("[VapiBridge] Vapi connection already closed.");
       return;
     }
-    ws.send(JSON.stringify({ type: "hangup" }));
-    ws.close();
+    try {
+      ws.send(JSON.stringify({ type: "end-call" }));
+      ws.send(JSON.stringify({ type: "hangup" }));
+    } catch {}
+    await new Promise((r) => setTimeout(r, 150));
+    try {
+      ws.close();
+    } catch {}
     console.log("[VapiBridge] Vapi session ended.");
   }
 }

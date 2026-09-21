@@ -184,6 +184,7 @@ async function waitForAdmission(page: Page, timeoutMs: number): Promise<void> {
 function startCallMonitor(page: Page, onCallEnded: () => void): () => void {
   let active = true;
   let timer: NodeJS.Timeout | null = null;
+  let aloneTicks = 0;
 
   const check = async () => {
     if (!active || page.isClosed()) return;
@@ -219,6 +220,25 @@ function startCallMonitor(page: Page, onCallEnded: () => void): () => void {
         }
       }
 
+      // Check if bot is left completely alone in the room
+      const isAlone = await page
+        .locator(selectors.ALONE)
+        .first()
+        .isVisible({ timeout: 200 })
+        .catch(() => false);
+      if (isAlone) {
+        aloneTicks++;
+        if (aloneTicks >= 3) {
+          log("[CallMonitor] Detected 'You are the only one here'. All other participants left. Ending session...");
+          active = false;
+          if (timer) clearInterval(timer);
+          onCallEnded();
+          return;
+        }
+      } else {
+        aloneTicks = 0;
+      }
+
       // Check if in-call controls disappeared
       const inCall = await page
         .locator(selectors.IN_CALL)
@@ -226,32 +246,20 @@ function startCallMonitor(page: Page, onCallEnded: () => void): () => void {
         .isVisible({ timeout: 200 })
         .catch(() => false);
       if (!inCall) {
-        const alone = await page
-          .locator(selectors.ALONE)
+        // Double-check after 2 seconds to avoid transient UI flashes
+        await sleep(2000);
+        if (!active || page.isClosed()) return;
+        const stillInCall = await page
+          .locator(selectors.IN_CALL)
           .first()
-          .isVisible({ timeout: 200 })
+          .isVisible({ timeout: 300 })
           .catch(() => false);
-        if (!alone) {
-          // Double-check after 2 seconds to avoid transient UI flashes
-          await sleep(2000);
-          if (!active || page.isClosed()) return;
-          const stillInCall = await page
-            .locator(selectors.IN_CALL)
-            .first()
-            .isVisible({ timeout: 300 })
-            .catch(() => false);
-          const stillAlone = await page
-            .locator(selectors.ALONE)
-            .first()
-            .isVisible({ timeout: 300 })
-            .catch(() => false);
-          if (!stillInCall && !stillAlone) {
-            log("[CallMonitor] In-call controls no longer visible. Ending session...");
-            active = false;
-            if (timer) clearInterval(timer);
-            onCallEnded();
-            return;
-          }
+        if (!stillInCall) {
+          log("[CallMonitor] In-call controls no longer visible. Ending session...");
+          active = false;
+          if (timer) clearInterval(timer);
+          onCallEnded();
+          return;
         }
       }
     } catch {
@@ -342,6 +350,18 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
 
+  const controlPort = config.bridgePort + 1;
+  controlServer = startControlServer(controlPort, {
+    setAgentMuted: (muted) => {
+      vapiBridge?.setMuted(muted);
+      log(`Agent ${muted ? "MUTED" : "UNMUTED"} (via HTTP).`);
+    },
+    leave: () => {
+      log("[ControlServer] Received /leave request from dashboard. Initiating shutdown...");
+      void shutdown();
+    },
+  });
+  log(`[ControlServer] Ready on http://127.0.0.1:${controlPort} (endpoints: POST /leave, POST /mute)`);
 
   try {
     if (vapiEnabled) {
@@ -557,6 +577,10 @@ async function main(): Promise<void> {
       vapiBridge.onAssistantAudio = (pcm) => {
         audioBridge?.sendToPage(pcm);
       };
+      vapiBridge.onClose = (code, reason) => {
+        log(`[VapiBridge] Vapi connection closed (code: ${code}, reason: ${reason}). Initiating shutdown...`);
+        void shutdown();
+      };
       await vapiBridge.start();
       log("[Step 11] SUCCESS: Vapi Voice AI Agent connected and active.");
 
@@ -579,14 +603,6 @@ async function main(): Promise<void> {
         if (key.ctrl && key.name === "c") void shutdown();
       });
 
-      const controlPort = config.bridgePort + 1;
-      controlServer = startControlServer(controlPort, {
-        setAgentMuted: (muted) => {
-          vapiBridge?.setMuted(muted);
-          log(`Agent ${muted ? "MUTED" : "UNMUTED"} (via HTTP).`);
-        },
-        leave: () => void shutdown(),
-      });
       log(
         `Controls: Press 'm' to mute/unmute, 'q' to leave meeting. ` +
           `HTTP API: POST http://127.0.0.1:${controlPort}/mute {"muted":true} | /leave`,

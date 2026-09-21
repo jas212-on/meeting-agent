@@ -54,6 +54,7 @@ function App() {
   // Selected meeting for side drawer
   const [selectedMeeting, setSelectedMeeting] = useState<MeetingRecord | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [drawerInitialTab, setDrawerInitialTab] = useState<"attendance" | "minutes">("minutes");
 
   // Auth states
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("auth_token"));
@@ -188,8 +189,9 @@ function App() {
 
       setMeetings((prev) => [newRecord, ...prev.filter((m) => m.id !== newRecord.id)]);
       setSelectedMeeting(newRecord);
+      setDrawerInitialTab("minutes");
       setIsDrawerOpen(true);
-      setNotification(`Meeting ${newRecord.id} completed! Attendance & minutes recorded.`);
+      setNotification(`Meeting ${newRecord.id} completed! AI summary & minutes ready.`);
 
       // Persist record to MongoDB Atlas
       try {
@@ -353,8 +355,9 @@ function App() {
   };
 
   /* ── History Actions ──────────────────────────────────────── */
-  const handleSelectMeeting = (meeting: MeetingRecord) => {
+  const handleSelectMeeting = (meeting: MeetingRecord, tab: "attendance" | "minutes" = "minutes") => {
     setSelectedMeeting(meeting);
+    setDrawerInitialTab(tab);
     setIsDrawerOpen(true);
   };
 
@@ -935,6 +938,7 @@ function App() {
       <AttendanceDrawer
         meeting={selectedMeeting}
         isOpen={isDrawerOpen}
+        initialTab={drawerInitialTab}
         onClose={() => setIsDrawerOpen(false)}
         onToggleActionItem={handleToggleActionItem}
       />

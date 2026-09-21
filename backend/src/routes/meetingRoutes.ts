@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { optionalAuth, AuthRequest } from "../middleware/auth.js";
 import { Meeting } from "../models/Meeting.js";
-import { fetchVapiCallTranscript } from "../services/vapiService.js";
+import { fetchVapiCallTranscript, terminateVapiCall } from "../services/vapiService.js";
 import { generateMeetingSummary } from "../services/groqService.js";
 
 const router = Router();
@@ -75,8 +75,11 @@ function formatDuration(seconds: number): string {
   return `${mins}m ${remSecs < 10 ? "0" : ""}${remSecs}s`;
 }
 
+let isSavingMeeting = false;
+
 async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<void> {
-  if (!currentMeetingId || !currentMeetingUrl) return;
+  if (!currentMeetingId || !currentMeetingUrl || isSavingMeeting) return;
+  isSavingMeeting = true;
 
   const meetingId = currentMeetingId;
   const meetingUrl = currentMeetingUrl;
@@ -89,6 +92,9 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
   let officialTranscript = "";
   let vapiMessages: any[] = [];
   if (currentVapiCallId) {
+    broadcast(`[dashboard] 🛑 Ensuring Vapi call session is terminated (${currentVapiCallId})...`);
+    await terminateVapiCall(currentVapiCallId).catch(() => {});
+
     broadcast(`[dashboard] ⏳ Retrieving final transcript from Vapi API (${currentVapiCallId})...`);
     const vapiDetails = await fetchVapiCallTranscript(currentVapiCallId);
     if (vapiDetails && vapiDetails.transcript) {
@@ -182,6 +188,7 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
     currentMeetingStartTime = null;
     currentVapiCallId = null;
     currentUserId = null;
+    isSavingMeeting = false;
   }
 }
 
@@ -332,6 +339,15 @@ router.post("/leave", async (_req, res: Response): Promise<void> => {
   broadcast("[dashboard] Leaving meeting...");
   const proc = activeProcess;
   const pid = proc.pid;
+  const vapiCallIdToTerminate = currentVapiCallId;
+
+  // Immediately terminate Vapi call via API so Vapi cloud disconnects in <200ms
+  if (vapiCallIdToTerminate) {
+    broadcast(`[dashboard] 🛑 Disconnecting Vapi AI Assistant (${vapiCallIdToTerminate})...`);
+    terminateVapiCall(vapiCallIdToTerminate).catch((err) => {
+      console.warn("[meetingRoutes] Error terminating Vapi call:", err);
+    });
+  }
 
   // 1. Attempt graceful leave via control server if available
   try {

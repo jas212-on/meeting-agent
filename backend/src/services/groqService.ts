@@ -18,7 +18,13 @@ export async function generateMeetingSummary(
   options: SummarizeMeetingOptions
 ): Promise<IMeetingMinutes> {
   const apiKey = process.env.GROQ_API_KEY?.trim();
-  const model = process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile";
+  const candidateModels = Array.from(
+    new Set(
+      [process.env.GROQ_MODEL?.trim(), "qwen/qwen3.8-27b", "openai/gpt-oss-120b", "groq/compound-mini"].filter(
+        Boolean
+      ) as string[]
+    )
+  );
   const { meetingId, meetingTitle = `Google Meet (${meetingId})`, duration = "N/A", attendeeNames = [] } = options;
 
   const transcript = rawTranscript.trim() || (options.fallbackTranscripts || []).join("\n").trim();
@@ -80,38 +86,48 @@ ${transcript}
 
 Generate the structured JSON minutes now.`;
 
-  try {
-    console.log(`[GroqService] Requesting AI meeting summary from Groq (${model})...`);
-    const res = await fetch(GROQ_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.2,
-        max_tokens: 1500,
-      }),
-    });
+  for (let i = 0; i < candidateModels.length; i++) {
+    const model = candidateModels[i];
+    try {
+      console.log(`[GroqService] Requesting AI meeting summary from Groq (${model})...`);
+      const res = await fetch(GROQ_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.2,
+          max_tokens: 1500,
+        }),
+      });
 
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => "");
-      console.error(`[GroqService] Groq API returned HTTP ${res.status}: ${errorText}`);
-      return createFallbackMeetingMinutes(meetingId, duration, transcript, attendeeNames);
-    }
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        console.warn(`[GroqService] Groq API returned HTTP ${res.status} for ${model}: ${errorText}`);
+        // If model not found or unavailable, try next candidate
+        if ((res.status === 404 || errorText.includes("model_not_found")) && i < candidateModels.length - 1) {
+          console.log(`[GroqService] Attempting next candidate model: ${candidateModels[i + 1]}...`);
+          continue;
+        }
+        if (i === candidateModels.length - 1) {
+          return createFallbackMeetingMinutes(meetingId, duration, transcript, attendeeNames);
+        }
+        continue;
+      }
 
-    const data = (await res.json()) as any;
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) {
-      console.warn("[GroqService] Groq response missing message content");
-      return createFallbackMeetingMinutes(meetingId, duration, transcript, attendeeNames);
-    }
+      const data = (await res.json()) as any;
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) {
+        console.warn("[GroqService] Groq response missing message content");
+        continue;
+      }
 
     const parsed = JSON.parse(content);
 
@@ -147,16 +163,21 @@ Generate the structured JSON minutes now.`;
       `[GroqService] SUCCESS: Generated AI summary with ${actionItems.length} action items, ${keyDecisions.length} key decisions.`
     );
 
-    return {
-      summary,
-      keyDecisions,
-      actionItems,
-      discussionTopics,
-    };
-  } catch (err: any) {
-    console.error("[GroqService] Failed to generate summary via Groq:", err?.message || err);
-    return createFallbackMeetingMinutes(meetingId, duration, transcript, attendeeNames);
+      return {
+        summary,
+        keyDecisions,
+        actionItems,
+        discussionTopics,
+      };
+    } catch (err: any) {
+      console.warn(`[GroqService] Attempt failed with model ${model}:`, err?.message || err);
+      if (i === candidateModels.length - 1) {
+        return createFallbackMeetingMinutes(meetingId, duration, transcript, attendeeNames);
+      }
+    }
   }
+
+  return createFallbackMeetingMinutes(meetingId, duration, transcript, attendeeNames);
 }
 
 function createEmptyMeetingMinutes(meetingId: string, duration: string): IMeetingMinutes {

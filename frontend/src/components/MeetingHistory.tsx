@@ -4,7 +4,7 @@ import { generateMeetingMinutesPDF } from "../utils/pdfGenerator";
 
 interface MeetingHistoryProps {
   meetings: MeetingRecord[];
-  onSelectMeeting: (meeting: MeetingRecord) => void;
+  onSelectMeeting: (meeting: MeetingRecord, initialTab?: "attendance" | "minutes") => void;
   onDeleteMeeting: (meetingId: string) => void;
   onRestoreDefaults: () => void;
 }
@@ -175,6 +175,24 @@ export function MeetingHistory({
                   </div>
                 </div>
 
+                {/* Meeting Summary Preview */}
+                {meeting.minutes?.summary && (
+                  <div
+                    className="meeting-summary-preview"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectMeeting(meeting, "minutes");
+                    }}
+                    title="Click to view full minutes & summary"
+                  >
+                    <div className="summary-preview-header">
+                      <span className="summary-preview-badge">✨ AI Executive Summary</span>
+                      <span className="summary-preview-expand">Expand ↗</span>
+                    </div>
+                    <p className="summary-preview-text">{meeting.minutes.summary}</p>
+                  </div>
+                )}
+
                 {/* Attendance Summary */}
                 <div className="meeting-attendance-bar">
                   <div className="avatar-stack">
@@ -210,14 +228,24 @@ export function MeetingHistory({
                 {/* Card Action Buttons */}
                 <div className="meeting-card-actions">
                   <button
+                    className="card-btn card-btn-summary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectMeeting(meeting, "minutes");
+                    }}
+                  >
+                    <span>📝 View Summary</span>
+                    <span className="arrow-icon">→</span>
+                  </button>
+
+                  <button
                     className="card-btn card-btn-view"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onSelectMeeting(meeting);
+                      onSelectMeeting(meeting, "attendance");
                     }}
                   >
-                    <span>👥 View Attendance</span>
-                    <span className="arrow-icon">→</span>
+                    <span>👥 Attendance</span>
                   </button>
 
                   <button
@@ -227,7 +255,7 @@ export function MeetingHistory({
                     title="Download minutes as PDF"
                   >
                     <span>📥</span>
-                    <span>{isDownloading ? "Saving…" : "Minutes PDF"}</span>
+                    <span>{isDownloading ? "Saving…" : "PDF"}</span>
                   </button>
                 </div>
               </article>

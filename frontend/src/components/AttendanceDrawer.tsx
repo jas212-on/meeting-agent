@@ -7,6 +7,7 @@ interface AttendanceDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   onToggleActionItem?: (meetingId: string, actionId: string) => void;
+  initialTab?: "attendance" | "minutes";
 }
 
 export function AttendanceDrawer({
@@ -14,10 +15,17 @@ export function AttendanceDrawer({
   isOpen,
   onClose,
   onToggleActionItem,
+  initialTab = "minutes",
 }: AttendanceDrawerProps) {
-  const [activeTab, setActiveTab] = useState<"attendance" | "minutes">("attendance");
+  const [activeTab, setActiveTab] = useState<"attendance" | "minutes">(initialTab);
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab, meeting?.id]);
 
   // Close on Escape key
   useEffect(() => {
@@ -99,16 +107,16 @@ export function AttendanceDrawer({
         {/* Tab switcher */}
         <div className="drawer-tabs">
           <button
+            className={`drawer-tab-btn ${activeTab === "minutes" ? "active" : ""}`}
+            onClick={() => setActiveTab("minutes")}
+          >
+            💡 AI Summary &amp; Minutes
+          </button>
+          <button
             className={`drawer-tab-btn ${activeTab === "attendance" ? "active" : ""}`}
             onClick={() => setActiveTab("attendance")}
           >
             👥 Attendance Record ({meeting.attendees.length})
-          </button>
-          <button
-            className={`drawer-tab-btn ${activeTab === "minutes" ? "active" : ""}`}
-            onClick={() => setActiveTab("minutes")}
-          >
-            📄 Minutes of Meeting
           </button>
         </div>
 

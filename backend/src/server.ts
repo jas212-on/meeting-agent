@@ -5,7 +5,9 @@ import { connectDB, closeDB, getDBStatus } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import meetingRoutes from "./routes/meetingRoutes.js";
 import meetingDataRoutes from "./routes/meetingDataRoutes.js";
+import groupRoutes from "./routes/groupRoutes.js";
 import { apiLimiter } from "./middleware/rateLimiter.js";
+
 
 // Load environment variables
 dotenv.config();
@@ -51,8 +53,10 @@ app.get("/api/health", (_req: Request, res: Response) => {
 
 /* ── Route Mounts ────────────────────────────────────────── */
 app.use("/api/auth", authRoutes);
+app.use("/api/groups", groupRoutes);
 app.use("/api/meetings", meetingDataRoutes);
 app.use("/api", meetingRoutes);
+
 
 /* ── 404 Not Found Handler ───────────────────────────────── */
 app.use((_req: Request, res: Response) => {

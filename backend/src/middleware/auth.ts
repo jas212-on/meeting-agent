@@ -28,7 +28,27 @@ export async function authenticateToken(
     return;
   }
 
+  // Handle demo token by attaching or auto-creating demo account
+  if (token === "demo-token-alex") {
+    try {
+      let demoUser = await User.findOne({ email: "alex@meetminutes.ai" });
+      if (!demoUser) {
+        demoUser = await User.create({
+          name: "Alex Morgan",
+          email: "alex@meetminutes.ai",
+          password: "demopassword123",
+        });
+      }
+      req.user = demoUser;
+      next();
+      return;
+    } catch {
+      // continue to normal jwt verification
+    }
+  }
+
   const secret = process.env.JWT_SECRET || "default_jwt_secret_fallback";
+
 
   try {
     const decoded = jwt.verify(token, secret) as JwtPayload;

@@ -53,3 +53,30 @@ export interface MeetingRecord {
   minutes: MeetingMinutes;
   status: "completed" | "in-progress" | "scheduled";
 }
+
+export interface UserSummary {
+  id: string;
+  name: string;
+  email: string;
+  createdAt?: string;
+}
+
+export interface GroupActiveMeeting {
+  url: string;
+  meetingId?: string;
+  sharedAt: string;
+  status: "active" | "ended";
+}
+
+export interface GroupItem {
+  id: string;
+  name: string;
+  description?: string;
+  admin: UserSummary;
+  members: UserSummary[];
+  activeMeeting?: GroupActiveMeeting | null;
+  isAdmin?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+

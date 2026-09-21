@@ -3,6 +3,8 @@ import type { MeetingRecord } from "./types";
 import { INITIAL_MEETINGS, createNewMeetingRecord, formatDuration } from "./utils/mockData";
 import { MeetingHistory } from "./components/MeetingHistory";
 import { AttendanceDrawer } from "./components/AttendanceDrawer";
+import { GroupSection } from "./components/GroupSection";
+
 
 type Status = "idle" | "joining" | "running";
 
@@ -275,14 +277,18 @@ function App() {
   }, [connectLogs, elapsedSeconds, finalizeMeetingSession, url]);
 
   /* ── Join meeting ─────────────────────────────────────────── */
-  const handleJoin = async () => {
-    if (!isValidUrl || status !== "idle") return;
+  const handleJoin = async (targetUrl?: string | unknown) => {
+    const meetingUrl = (typeof targetUrl === "string" ? targetUrl : url).trim();
+    if (!MEET_RE.test(meetingUrl) || status !== "idle") return;
+    if (typeof targetUrl === "string") {
+      setUrl(targetUrl.trim());
+    }
     setError(null);
     setLogs([]);
-    const meetingUrl = url.trim();
     currentMeetingUrlRef.current = meetingUrl;
     activeMeetingStartTimeRef.current = Date.now();
     setElapsedSeconds(0);
+
 
     // If backend is online, invoke real endpoint
     if (isBackendOnline) {
@@ -861,7 +867,7 @@ function App() {
                 id="join-btn"
                 className="btn-join-primary"
                 disabled={!isValidUrl}
-                onClick={handleJoin}
+                onClick={() => handleJoin()}
               >
                 <span className="btn-icon">▶</span>
                 <span>Join &amp; Record</span>
@@ -938,6 +944,18 @@ function App() {
             </div>
           )}
         </section>
+
+        {/* ── Collaboration Groups & Workspaces ───────────── */}
+        <GroupSection
+          token={token}
+          currentUser={user}
+          botStatus={status}
+          onJoinMeeting={(meetUrl) => handleJoin(meetUrl)}
+          onOpenAuthModal={() => {
+            setAuthMode("login");
+            setCurrentView("auth");
+          }}
+        />
 
         {/* ── Meeting History Section ─────────────────────── */}
         <MeetingHistory

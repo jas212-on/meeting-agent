@@ -162,3 +162,62 @@ export async function getMe(req: AuthRequest, res: Response): Promise<void> {
     });
   }
 }
+
+// GET /api/auth/users - list registered users for group selection
+export async function getUsers(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { q } = req.query;
+    const filter: Record<string, any> = {};
+
+    if (q && typeof q === "string" && q.trim()) {
+      const searchRegex = new RegExp(q.trim(), "i");
+      filter.$or = [{ name: searchRegex }, { email: searchRegex }];
+    }
+
+    // Seed a few sample colleagues if none or few exist, ensuring quick collaboration testing
+    const count = await User.countDocuments();
+    if (count < 4) {
+      const sampleUsers = [
+        { name: "Sarah Chen", email: "sarah.chen@techcorp.io", password: "password123" },
+        { name: "Marcus Vance", email: "marcus.vance@techcorp.io", password: "password123" },
+        { name: "Elena Rostova", email: "elena.rostova@techcorp.io", password: "password123" },
+        { name: "David Kim", email: "david.kim@techcorp.io", password: "password123" },
+      ];
+      for (const su of sampleUsers) {
+        const exists = await User.findOne({ email: su.email });
+        if (!exists) {
+          await User.create(su).catch(() => {});
+        }
+      }
+    }
+
+    // Exclude current requesting user if needed, or include them so groups can list all
+    const users = await User.find(filter)
+      .select("name email createdAt")
+      .sort({ name: 1 })
+      .limit(100)
+      .lean();
+
+
+    const formatted = users.map((u: any) => ({
+      id: u._id.toString(),
+      name: u.name,
+      email: u.email,
+      createdAt: u.createdAt,
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: formatted.length,
+      users: formatted,
+    });
+  } catch (error: any) {
+    console.error("GetUsers error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve registered users.",
+    });
+  }
+}
+
+

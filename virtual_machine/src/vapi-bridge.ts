@@ -5,7 +5,7 @@ const VAPI_API_BASE = "https://api.vapi.ai";
 async function createWebsocketCall(
   apiKey: string,
   assistantId: string,
-): Promise<string> {
+): Promise<{ url: string; callId: string }> {
   const body = {
     assistantId,
     transport: {
@@ -18,7 +18,7 @@ async function createWebsocketCall(
     },
     assistantOverrides: {
       firstMessageMode: "assistant-waits-for-user",
-      silenceTimeoutSeconds: 1200,
+      silenceTimeoutSeconds: 180,
     },
   };
 
@@ -40,17 +40,20 @@ async function createWebsocketCall(
     );
   }
 
-  const data = (await res.json()) as { transport?: { websocketCallUrl?: string } };
+  const data = (await res.json()) as { id?: string; transport?: { websocketCallUrl?: string } };
   const url = data?.transport?.websocketCallUrl;
-  if (!url) {
-    console.error("[VapiBridge] FAILED: Vapi response missing transport.websocketCallUrl:", JSON.stringify(data));
-    throw new Error("Vapi response missing transport.websocketCallUrl");
+  const callId = data?.id;
+  if (!url || !callId) {
+    console.error("[VapiBridge] FAILED: Vapi response missing transport.websocketCallUrl or call id:", JSON.stringify(data));
+    throw new Error("Vapi response missing transport.websocketCallUrl or call id");
   }
+  console.log(`[VapiBridge] Call created with ID: ${callId}`);
   console.log(`[VapiBridge] SUCCESS: Vapi call session created. WebSocket URL obtained.`);
-  return url;
+  return { url, callId };
 }
 
 export class VapiBridge {
+  callId?: string;
   muted = false;
   isSpeaking = false;
   onAssistantAudio?: (pcm: Buffer) => void;
@@ -131,7 +134,8 @@ export class VapiBridge {
 
   async start(): Promise<void> {
     console.log("[VapiBridge] Step: Initializing Vapi connection...");
-    const url = await createWebsocketCall(this.apiKey, this.assistantId);
+    const { url, callId } = await createWebsocketCall(this.apiKey, this.assistantId);
+    this.callId = callId;
     console.log("[VapiBridge] Step: Connecting to Vapi WebSocket endpoint...");
     this.ws = new WebSocket(url, {
       headers: { Authorization: `Bearer ${this.apiKey}` },

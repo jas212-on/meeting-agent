@@ -4,6 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { optionalAuth, AuthRequest } from "../middleware/auth.js";
 import { Meeting } from "../models/Meeting.js";
+import { fetchVapiCallTranscript } from "../services/vapiService.js";
+import { generateMeetingSummary } from "../services/groqService.js";
 
 const router = Router();
 
@@ -33,6 +35,7 @@ const sseClients: Set<Response> = new Set();
 let currentMeetingId: string | null = null;
 let currentMeetingUrl: string | null = null;
 let currentMeetingStartTime: number | null = null;
+let currentVapiCallId: string | null = null;
 let currentUserId: any = null;
 let currentUserName = "Meeting Host";
 let currentUserEmail = "host@meetminutes.ai";
@@ -82,17 +85,42 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
   const durationStr = formatDuration(durationSeconds);
   const endTimeStr = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
-  // Extract transcripts or remarks from logs
-  const transcriptLines: string[] = [];
-  for (const line of logs) {
-    if (line.includes("[VapiBridge] Voice transcribed") || line.includes("[VapiBridge] User voice transcribed") || line.includes("[VapiBridge] Assistant voice transcribed")) {
-      transcriptLines.push(line.replace(/^\[.*?\]\s*/, ""));
+  // 1. Attempt to fetch clean transcript from Vapi API if call ID is available
+  let officialTranscript = "";
+  let vapiMessages: any[] = [];
+  if (currentVapiCallId) {
+    broadcast(`[dashboard] ⏳ Retrieving final transcript from Vapi API (${currentVapiCallId})...`);
+    const vapiDetails = await fetchVapiCallTranscript(currentVapiCallId);
+    if (vapiDetails && vapiDetails.transcript) {
+      officialTranscript = vapiDetails.transcript;
+      vapiMessages = vapiDetails.messages || [];
+      broadcast(`[dashboard] ✅ Vapi transcript retrieved (${officialTranscript.length} chars, ${vapiMessages.length} speech segments).`);
+    } else {
+      broadcast("[dashboard] ⚠️ Vapi transcript not available, checking session logs.");
     }
   }
 
-  const summaryText = transcriptLines.length > 0
-    ? `Meeting session (${meetingId}) completed. Transcribed ${transcriptLines.length} speech segments. Session ran for ${durationStr}.`
-    : `Meeting session on Google Meet (${meetingId}) completed successfully after ${durationStr}. Audio and meeting state were logged.`;
+  // 2. Fallback transcript lines from logs if Vapi API didn't return one
+  const fallbackTranscripts: string[] = [];
+  for (const line of logs) {
+    if (
+      line.includes("[VapiBridge] Voice transcribed") ||
+      line.includes("[VapiBridge] User voice transcribed") ||
+      line.includes("[VapiBridge] Assistant voice transcribed")
+    ) {
+      fallbackTranscripts.push(line.replace(/^\[.*?\]\s*/, ""));
+    }
+  }
+
+  // 3. Generate structured AI minutes via Groq LLM
+  broadcast("[dashboard] 🧠 Generating meeting minutes with Groq AI...");
+  const minutes = await generateMeetingSummary(officialTranscript, {
+    meetingId,
+    meetingTitle: `Google Meet Session (${meetingId})`,
+    duration: durationStr,
+    attendeeNames: [currentUserName, "MeetMinutes AI Assistant"],
+    fallbackTranscripts,
+  });
 
   const attendees = [
     {
@@ -103,7 +131,7 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
       avatarColor: "#6366f1",
       joinedAt: new Date(startTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
       leftAt: endTimeStr,
-      speakingTimePct: 45,
+      speakingTimePct: 50,
       status: "Present" as const,
     },
     {
@@ -114,37 +142,10 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
       avatarColor: "#10b981",
       joinedAt: new Date(startTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
       leftAt: endTimeStr,
-      speakingTimePct: 35,
+      speakingTimePct: 40,
       status: "Present" as const,
     },
   ];
-
-  const minutes = {
-    summary: summaryText,
-    keyDecisions: [
-      `Completed live session for meeting room ${meetingId}.`,
-      `Bot session exited with status code ${exitCode ?? 0}.`,
-      "Audio feed processed and archived in database.",
-    ],
-    actionItems: [
-      {
-        id: `act-1-${Date.now()}`,
-        task: `Review compiled meeting notes for ${meetingId}`,
-        assignee: currentUserName,
-        dueDate: new Date(Date.now() + 86400000 * 2).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        completed: false,
-      },
-    ],
-    discussionTopics: [
-      {
-        time: `00:00 - ${durationStr}`,
-        topic: `Google Meet Session (${meetingId})`,
-        notes: transcriptLines.length > 0
-          ? transcriptLines.slice(-5).join(" | ")
-          : "Session audio routing and agent presence active.",
-      },
-    ],
-  };
 
   try {
     const updateData: Record<string, any> = {
@@ -179,6 +180,7 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
     currentMeetingId = null;
     currentMeetingUrl = null;
     currentMeetingStartTime = null;
+    currentVapiCallId = null;
     currentUserId = null;
   }
 }
@@ -281,6 +283,13 @@ router.post("/join", optionalAuth, async (req: AuthRequest, res: Response): Prom
     if (text) {
       broadcast(text);
       if (text.includes("In meeting")) status = "running";
+
+      // Detect Vapi Call ID emitted by vapi-bridge
+      const vapiMatch = text.match(/\[VapiBridge\] Call created with ID:\s*([a-zA-Z0-9_-]+)/);
+      if (vapiMatch && vapiMatch[1]) {
+        currentVapiCallId = vapiMatch[1];
+        broadcast(`[dashboard] 🔗 Vapi Call Session linked: ${currentVapiCallId}`);
+      }
     }
   });
 
@@ -361,6 +370,7 @@ router.get("/status", (_req, res: Response): void => {
     activeMeetingId: currentMeetingId,
     activeMeetingUrl: currentMeetingUrl,
     activeStartTime: currentMeetingStartTime,
+    activeVapiCallId: currentVapiCallId,
   });
 });
 

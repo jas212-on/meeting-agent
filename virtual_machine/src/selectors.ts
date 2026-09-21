@@ -52,3 +52,41 @@ export const callEndedSelectors = [
   'text="The meeting has ended"',
   'text="Ready to rejoin?"',
 ] as const;
+
+export const chatButtonSelectors = [
+  'button[aria-label*="Chat with everyone" i]',
+  'button[aria-label*="In-call messages" i]',
+  'button[aria-label*="Chat" i]',
+  'button[aria-label*="messages" i]',
+  'button[data-panel-id="2"]',
+  'button[jsname="A5il2e"]',
+  'button:has(i:has-text("chat"))',
+] as const;
+
+export const chatPanelSelectors = [
+  'div[data-side-panel-id="2"]',
+  'div[aria-label*="In-call messages" i]',
+  'div[aria-label*="Chat with everyone" i]',
+  'div[role="region"][aria-label*="chat" i]',
+  'div[role="complementary"]',
+] as const;
+
+export const chatInputSelectors = [
+  'textarea[aria-label*="Send a message" i]',
+  'textarea[name="chatTextInput"]',
+  'textarea[aria-label*="Chat" i]',
+  'textarea[placeholder*="Send a message" i]',
+  'textarea[placeholder*="message" i]',
+  'div[contenteditable="true"][aria-label*="Send a message" i]',
+  'div[contenteditable="true"][role="textbox"]',
+  'div[role="textbox"]',
+  'textarea',
+] as const;
+
+export const chatSendButtonSelectors = [
+  'button[aria-label*="Send a message" i]',
+  'button[aria-label*="Send message" i]',
+  'button[jsname="So7YBf"]',
+  'button:has(i:has-text("send"))',
+  'button:has(span:has-text("send"))',
+] as const;

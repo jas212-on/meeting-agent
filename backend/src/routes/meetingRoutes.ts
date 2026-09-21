@@ -288,6 +288,7 @@ router.post("/join", optionalAuth, async (req: AuthRequest, res: Response): Prom
   child.stdout?.on("data", (chunk: Buffer) => {
     const text = chunk.toString().trim();
     if (text) {
+      console.log(text);
       broadcast(text);
       if (text.includes("In meeting")) status = "running";
 
@@ -302,7 +303,10 @@ router.post("/join", optionalAuth, async (req: AuthRequest, res: Response): Prom
 
   child.stderr?.on("data", (chunk: Buffer) => {
     const text = chunk.toString().trim();
-    if (text) broadcast(`[stderr] ${text}`);
+    if (text) {
+      console.error(`[stderr] ${text}`);
+      broadcast(`[stderr] ${text}`);
+    }
   });
 
   child.on("close", async (code) => {

@@ -19,6 +19,8 @@ import {
 import { AudioBridge } from "./audio-bridge.js";
 import { VapiBridge } from "./vapi-bridge.js";
 import { startControlServer } from "./control-server.js";
+import { startChatWatcher, sendChatMessage } from "./meet-chat.js";
+import { generateChatReply } from "./chat-responder.js";
 
 const log = (...msg: unknown[]): void =>
   console.log(`[${new Date().toISOString()}]`, ...msg);
@@ -294,6 +296,7 @@ async function main(): Promise<void> {
   let vapiBridge: VapiBridge | undefined;
   let controlServer: http.Server | undefined;
   let stopCallMonitor: (() => void) | undefined;
+  let stopChatWatcher: (() => void) | undefined;
   let mode: "speak" | "listen" | undefined = undefined;
   let cleanedUp = false;
 
@@ -301,6 +304,10 @@ async function main(): Promise<void> {
     if (cleanedUp) return;
     cleanedUp = true;
     log("Cleaning up session...");
+    if (stopChatWatcher) {
+      stopChatWatcher();
+      stopChatWatcher = undefined;
+    }
     if (stopCallMonitor) {
       stopCallMonitor();
       stopCallMonitor = undefined;
@@ -552,6 +559,30 @@ async function main(): Promise<void> {
     } catch {
       /* non-critical */
     }
+
+    // Start in-call Google Meet chat watcher for @MeetMinutes mentions
+    log("[Step 10] Starting Google Meet in-call chat monitor (@MeetMinutes)...");
+    stopChatWatcher = startChatWatcher({
+      page,
+      botDisplayName: config.displayName || "MeetMinutes",
+      onMention: async (incoming) => {
+        log(`[ChatBot] 📥 Received @MeetMinutes mention from "${incoming.sender}": "${incoming.text}"`);
+        const transcriptContext = vapiBridge?.getTranscriptHistory() || "";
+        log(`[ChatBot] Live transcript context length: ${transcriptContext.length} chars. Requesting AI reply from Groq...`);
+        const reply = await generateChatReply({
+          sender: incoming.sender,
+          question: incoming.text,
+          transcriptHistory: transcriptContext,
+        });
+        log(`[ChatBot] 📤 Generated reply: "${reply}". Posting to Google Meet chat...`);
+        const sent = await sendChatMessage(page, reply);
+        if (sent) {
+          log(`[ChatBot] ✅ SUCCESS: Chat reply posted to Google Meet!`);
+        } else {
+          log(`[ChatBot] ❌ FAILED: Could not post chat reply to Google Meet.`);
+        }
+      },
+    });
 
     if (vapiEnabled) {
       const setMode = async (speaking: boolean): Promise<void> => {

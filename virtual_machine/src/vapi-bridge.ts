@@ -76,12 +76,33 @@ export class VapiBridge {
   private lastVoiceRecvLog = 0;
   private recvVoiceBytes = 0;
   private lastEchoGateLog = 0;
+  private transcriptHistory: Array<{ role: string; text: string; time: number }> = [];
 
   constructor(
     private readonly apiKey: string,
     private readonly assistantId: string,
     private readonly onAssistantSpeech: (speaking: boolean) => void,
   ) {}
+
+  getTranscriptHistory(maxCount = 25): string {
+    const slice = this.transcriptHistory.slice(-maxCount);
+    return slice
+      .map((entry) => `${entry.role === "assistant" ? "MeetMinutes" : "Participant"}: ${entry.text}`)
+      .join("\n");
+  }
+
+  addTranscriptEntry(role: string, text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const last = this.transcriptHistory[this.transcriptHistory.length - 1];
+    // Avoid immediate duplicate logs
+    if (last && last.role === role && last.text === trimmed) return;
+    this.transcriptHistory.push({ role, text: trimmed, time: Date.now() });
+    if (this.transcriptHistory.length > 200) {
+      this.transcriptHistory = this.transcriptHistory.slice(-150);
+    }
+  }
+
 
   setMuted(muted: boolean): void {
     this.muted = muted;
@@ -212,11 +233,19 @@ export class VapiBridge {
         } else {
           console.log(`[VapiBridge] Voice transcribed [${role}]: "${transcript}"`);
         }
+        if (transcript && transcriptType !== "partial") {
+          this.addTranscriptEntry(role, transcript);
+        }
       } else if (msg.type === "conversation-update") {
         if (Array.isArray(msg.conversation)) {
           const last = msg.conversation[msg.conversation.length - 1];
           if (last) {
-            console.log(`[VapiBridge] Conversation update: [${last.role}] ${last.content || last.message || ""}`);
+            const role = last.role || "user";
+            const text = last.content || last.message || "";
+            console.log(`[VapiBridge] Conversation update: [${role}] ${text}`);
+            if (text) {
+              this.addTranscriptEntry(role, text);
+            }
           }
         }
       } else if (msg.type === "model-output") {

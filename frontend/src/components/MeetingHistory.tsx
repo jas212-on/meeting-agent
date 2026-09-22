@@ -1,6 +1,22 @@
 import { useState } from "react";
 import type { MeetingRecord } from "../types";
 import { generateMeetingMinutesPDF } from "../utils/pdfGenerator";
+import {
+  Search,
+  X,
+  RotateCcw,
+  FolderOpen,
+  Calendar,
+  Clock,
+  Trash2,
+  Sparkles,
+  ExternalLink,
+  FileText,
+  Users,
+  Download,
+  ArrowRight,
+  CheckCircle2
+} from "lucide-react";
 
 interface MeetingHistoryProps {
   meetings: MeetingRecord[];
@@ -55,13 +71,13 @@ export function MeetingHistory({
             </span>
           </div>
           <p className="history-subtitle">
-            Recorded sessions, attendance rosters, and AI-generated minutes of meetings.
+            Search and review recorded sessions, attendance audits, and generated minutes of meeting.
           </p>
         </div>
 
         <div className="history-controls">
           <div className="history-search-wrapper">
-            <span className="search-icon">🔍</span>
+            <Search className="search-icon-svg" />
             <input
               type="text"
               className="history-search-input"
@@ -74,15 +90,17 @@ export function MeetingHistory({
                 className="clear-search-btn"
                 onClick={() => setSearchQuery("")}
                 aria-label="Clear search"
+                type="button"
               >
-                ✕
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
           {meetings.length === 0 && (
-            <button className="btn-restore-samples" onClick={onRestoreDefaults}>
-              ⚡ Load Sample Meetings
+            <button className="btn-restore-samples" onClick={onRestoreDefaults} type="button">
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Load Sample Meetings</span>
             </button>
           )}
         </div>
@@ -91,28 +109,33 @@ export function MeetingHistory({
       {/* Meetings List / Grid */}
       {filteredMeetings.length === 0 ? (
         <div className="history-empty">
-          <div className="empty-icon">📂</div>
+          <div className="empty-icon-wrap">
+            <FolderOpen className="empty-icon-svg" />
+          </div>
           <h3 className="empty-title">
-            {searchQuery ? "No matching meetings found" : "No meeting history recorded yet"}
+            {searchQuery ? "No matching sessions found" : "No meeting history recorded yet"}
           </h3>
           <p className="empty-desc">
             {searchQuery
-              ? `No results matched "${searchQuery}". Try a different keyword.`
-              : "Paste a Google Meet link above and join a session. When the meeting ends, your attendance records and minutes will appear right here."}
+              ? `No results matched "${searchQuery}". Try searching with a different name or meeting ID.`
+              : "Paste a Google Meet link above to deploy your agent. Once completed, your attendance records and executive minutes will appear here."}
           </p>
           {searchQuery ? (
             <button
               className="btn-primary-ghost"
               onClick={() => setSearchQuery("")}
+              type="button"
             >
-              Clear Search Filter
+              Clear Filter
             </button>
           ) : (
             <button
               className="btn-primary-ghost"
               onClick={onRestoreDefaults}
+              type="button"
             >
-              Load Sample Meetings
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Load Sample Meetings</span>
             </button>
           )}
         </div>
@@ -139,12 +162,15 @@ export function MeetingHistory({
                 {/* Top bar: Meeting ID, Status, and Delete */}
                 <div className="meeting-card-header">
                   <div className="meeting-id-box">
-                    <span className="meeting-id-prefix">ID:</span>
+                    <span className="meeting-id-prefix">ID</span>
                     <span className="meeting-id-text">{meeting.id}</span>
                   </div>
 
                   <div className="meeting-card-header-actions">
-                    <span className="meeting-status-tag">Completed</span>
+                    <span className="meeting-status-tag">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      Completed
+                    </span>
                     <button
                       className="delete-meeting-btn"
                       title="Remove from history"
@@ -153,8 +179,9 @@ export function MeetingHistory({
                         onDeleteMeeting(meeting.id);
                       }}
                       aria-label={`Delete meeting ${meeting.id}`}
+                      type="button"
                     >
-                      🗑
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -165,12 +192,12 @@ export function MeetingHistory({
                 {/* Meta details: Date & Duration */}
                 <div className="meeting-meta-row">
                   <div className="meta-pill date-pill">
-                    <span className="meta-icon">📅</span>
+                    <Calendar className="meta-icon-svg" />
                     <span>{meeting.date}</span>
                     <span className="meta-subtime">{meeting.time}</span>
                   </div>
                   <div className="meta-pill duration-pill">
-                    <span className="meta-icon">⏱</span>
+                    <Clock className="meta-icon-svg" />
                     <span>{meeting.duration}</span>
                   </div>
                 </div>
@@ -186,8 +213,14 @@ export function MeetingHistory({
                     title="Click to view full minutes & summary"
                   >
                     <div className="summary-preview-header">
-                      <span className="summary-preview-badge">✨ AI Executive Summary</span>
-                      <span className="summary-preview-expand">Expand ↗</span>
+                      <span className="summary-preview-badge">
+                        <Sparkles className="w-3 h-3 text-indigo-400" />
+                        AI Summary
+                      </span>
+                      <span className="summary-preview-expand">
+                        <span>Details</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </span>
                     </div>
                     <p className="summary-preview-text">{meeting.minutes.summary}</p>
                   </div>
@@ -233,9 +266,11 @@ export function MeetingHistory({
                       e.stopPropagation();
                       onSelectMeeting(meeting, "minutes");
                     }}
+                    type="button"
                   >
-                    <span>📝 View Summary</span>
-                    <span className="arrow-icon">→</span>
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Minutes</span>
+                    <ArrowRight className="w-3 h-3 ml-0.5" />
                   </button>
 
                   <button
@@ -244,8 +279,10 @@ export function MeetingHistory({
                       e.stopPropagation();
                       onSelectMeeting(meeting, "attendance");
                     }}
+                    type="button"
                   >
-                    <span>👥 Attendance</span>
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Attendance</span>
                   </button>
 
                   <button
@@ -253,8 +290,9 @@ export function MeetingHistory({
                     onClick={(e) => handleDownload(e, meeting)}
                     disabled={isDownloading}
                     title="Download minutes as PDF"
+                    type="button"
                   >
-                    <span>📥</span>
+                    <Download className="w-3.5 h-3.5" />
                     <span>{isDownloading ? "Saving…" : "PDF"}</span>
                   </button>
                 </div>
@@ -266,3 +304,4 @@ export function MeetingHistory({
     </section>
   );
 }
+

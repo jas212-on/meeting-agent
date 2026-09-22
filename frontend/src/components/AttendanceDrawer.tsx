@@ -1,6 +1,24 @@
 import { useState, useEffect } from "react";
 import type { MeetingRecord } from "../types";
 import { generateMeetingMinutesPDF } from "../utils/pdfGenerator";
+import {
+  X,
+  FileText,
+  Users,
+  Download,
+  Copy,
+  Check,
+  Calendar,
+  Clock,
+  Sparkles,
+  Target,
+  ListTodo,
+  MessageSquare,
+  ChevronDown,
+  ChevronUp,
+  RotateCw,
+  User
+} from "lucide-react";
 
 interface AttendanceDrawerProps {
   meeting: MeetingRecord | null;
@@ -154,8 +172,14 @@ export function AttendanceDrawer({
               <span className="drawer-id-badge">
                 <span className="dot-mini" /> {meeting.id}
               </span>
-              <span className="drawer-duration-badge">⏱ {meeting.duration}</span>
-              <span className="drawer-date-badge">📅 {meeting.date}</span>
+              <span className="drawer-duration-badge">
+                <Clock className="w-3 h-3 text-slate-400" />
+                <span>{meeting.duration}</span>
+              </span>
+              <span className="drawer-date-badge">
+                <Calendar className="w-3 h-3 text-slate-400" />
+                <span>{meeting.date}</span>
+              </span>
             </div>
             <h2 id="drawer-title" className="drawer-title">
               {meeting.title}
@@ -165,8 +189,9 @@ export function AttendanceDrawer({
             className="drawer-close-btn"
             onClick={onClose}
             aria-label="Close panel"
+            type="button"
           >
-            ✕
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -175,14 +200,18 @@ export function AttendanceDrawer({
           <button
             className={`drawer-tab-btn ${activeTab === "minutes" ? "active" : ""}`}
             onClick={() => setActiveTab("minutes")}
+            type="button"
           >
-            💡 AI Summary &amp; Minutes
+            <FileText className="w-3.5 h-3.5" />
+            <span>AI Summary &amp; Minutes</span>
           </button>
           <button
             className={`drawer-tab-btn ${activeTab === "attendance" ? "active" : ""}`}
             onClick={() => setActiveTab("attendance")}
+            type="button"
           >
-            👥 Attendance Record ({meeting.attendees.length})
+            <Users className="w-3.5 h-3.5" />
+            <span>Attendance Audit ({meeting.attendees.length})</span>
           </button>
         </div>
 
@@ -201,20 +230,22 @@ export function AttendanceDrawer({
                   <span className="stat-value highlight-emerald">{presentCount}</span>
                 </div>
                 <div className="stat-card">
-                  <span className="stat-label">Duration</span>
+                  <span className="stat-label">Recorded Duration</span>
                   <span className="stat-value">{meeting.duration}</span>
                 </div>
               </div>
 
               {/* Attendee List */}
               <div className="roster-header-row">
-                <h3 className="section-subtitle">Participant Roster & Activity</h3>
+                <h3 className="section-subtitle">Participant Roster &amp; Intervals</h3>
                 <button
                   className="export-attendance-btn"
                   onClick={handleExportCSV}
                   title="Export complete attendance record to CSV"
+                  type="button"
                 >
-                  📥 Export CSV
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export CSV</span>
                 </button>
               </div>
 
@@ -262,7 +293,8 @@ export function AttendanceDrawer({
                                 attendee.rejoinCount > 1 ? "s" : ""
                               }`}
                             >
-                              🔄 Rejoined {attendee.rejoinCount}×
+                              <RotateCw className="w-3 h-3" />
+                              <span>Rejoined {attendee.rejoinCount}×</span>
                             </span>
                           ) : null}
                           <span
@@ -314,11 +346,19 @@ export function AttendanceDrawer({
                                 setExpandedAttendeeId(isExpanded ? null : attendee.id)
                               }
                             >
-                              {isExpanded
-                                ? "▲ Hide Sessions"
-                                : `▼ ${attendee.intervals!.length} Session${
-                                    attendee.intervals!.length > 1 ? "s" : ""
-                                  }`}
+                              {isExpanded ? (
+                                <>
+                                  <ChevronUp className="w-3 h-3" />
+                                  <span>Hide Intervals</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ChevronDown className="w-3 h-3" />
+                                  <span>
+                                    {attendee.intervals!.length} Interval{attendee.intervals!.length > 1 ? "s" : ""}
+                                  </span>
+                                </>
+                              )}
                             </button>
                           )}
                         </div>
@@ -334,12 +374,17 @@ export function AttendanceDrawer({
                                 <div key={idx} className="session-item">
                                   <span className="session-tag">Session {idx + 1}</span>
                                   <div className="session-timestamps">
-                                    <span className="session-in">🟢 {interval.joinedAt}</span>
+                                    <span className="session-in">
+                                      <span className="dot-green" /> {interval.joinedAt}
+                                    </span>
                                     <span className="session-arrow">→</span>
-                                    <span className="session-out">🔴 {interval.leftAt}</span>
+                                    <span className="session-out">
+                                      <span className="dot-red" /> {interval.leftAt}
+                                    </span>
                                   </div>
                                   <span className="session-duration">
-                                    ⏱ {formatSecs(interval.durationSeconds)}
+                                    <Clock className="w-3 h-3 text-slate-400" />
+                                    <span>{formatSecs(interval.durationSeconds)}</span>
                                   </span>
                                 </div>
                               ))}
@@ -357,7 +402,8 @@ export function AttendanceDrawer({
               {/* Executive Summary */}
               <div className="minutes-block summary-block">
                 <h3 className="block-title">
-                  <span className="block-icon">💡</span> Executive Summary
+                  <Sparkles className="block-icon-svg text-indigo-400" />
+                  <span>Executive Summary</span>
                 </h3>
                 <p className="summary-text">{meeting.minutes.summary}</p>
               </div>
@@ -365,12 +411,15 @@ export function AttendanceDrawer({
               {/* Key Decisions */}
               <div className="minutes-block">
                 <h3 className="block-title">
-                  <span className="block-icon">🎯</span> Key Decisions Made
+                  <Target className="block-icon-svg text-emerald-400" />
+                  <span>Key Decisions Made</span>
                 </h3>
                 <ul className="decisions-list">
                   {meeting.minutes.keyDecisions.map((decision, i) => (
                     <li key={i} className="decision-item">
-                      <span className="check-bullet">✓</span>
+                      <span className="check-bullet">
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      </span>
                       <span>{decision}</span>
                     </li>
                   ))}
@@ -380,7 +429,8 @@ export function AttendanceDrawer({
               {/* Action Items */}
               <div className="minutes-block">
                 <h3 className="block-title">
-                  <span className="block-icon">⚡</span> Action Items & Deliverables
+                  <ListTodo className="block-icon-svg text-amber-400" />
+                  <span>Action Items &amp; Deliverables</span>
                 </h3>
                 <div className="action-items-list">
                   {meeting.minutes.actionItems.map((item) => (
@@ -402,8 +452,14 @@ export function AttendanceDrawer({
                       <div className="action-content">
                         <span className="action-task">{item.task}</span>
                         <div className="action-meta">
-                          <span className="action-assignee">👤 {item.assignee}</span>
-                          <span className="action-due">📅 Due: {item.dueDate}</span>
+                          <span className="action-assignee">
+                            <User className="w-3 h-3 text-slate-400" />
+                            <span>{item.assignee}</span>
+                          </span>
+                          <span className="action-due">
+                            <Calendar className="w-3 h-3 text-slate-400" />
+                            <span>Due: {item.dueDate}</span>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -416,7 +472,8 @@ export function AttendanceDrawer({
                 meeting.minutes.discussionTopics.length > 0 && (
                   <div className="minutes-block">
                     <h3 className="block-title">
-                      <span className="block-icon">💬</span> Agenda & Discussion Topics
+                      <MessageSquare className="block-icon-svg text-cyan-400" />
+                      <span>Agenda &amp; Discussion Topics</span>
                     </h3>
                     <div className="timeline-list">
                       {meeting.minutes.discussionTopics.map((topic, i) => (
@@ -441,16 +498,28 @@ export function AttendanceDrawer({
             className="btn-download-pdf"
             onClick={handleDownloadPDF}
             disabled={downloading}
+            type="button"
           >
-            <span className="btn-icon">📥</span>
-            {downloading ? "Generating PDF…" : "Download Minutes (PDF)"}
+            <Download className="btn-icon-svg" />
+            <span>{downloading ? "Generating PDF…" : "Download Minutes (PDF)"}</span>
           </button>
 
-          <button className="btn-secondary-drawer" onClick={handleCopySummary}>
-            {copied ? "✓ Copied!" : "📋 Copy Summary"}
+          <button className="btn-secondary-drawer" onClick={handleCopySummary} type="button">
+            {copied ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Copied to Clipboard</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy Summary</span>
+              </>
+            )}
           </button>
         </div>
       </aside>
     </div>
   );
 }
+

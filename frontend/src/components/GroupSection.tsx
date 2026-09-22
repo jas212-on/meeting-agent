@@ -1,5 +1,25 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { GroupItem, UserSummary } from "../types";
+import {
+  Building2,
+  Users,
+  Plus,
+  Search,
+  X,
+  Radio,
+  Video,
+  ExternalLink,
+  ShieldCheck,
+  User,
+  Trash2,
+  Check,
+  Clock,
+  ArrowRight,
+  Bot,
+  Link2,
+  AlertCircle,
+  Share2
+} from "lucide-react";
 
 
 interface GroupSectionProps {
@@ -324,23 +344,25 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
   };
 
   return (
-    <section className="groups-container-section" aria-label="Collaboration Groups">
+    <section className="groups-container-section" aria-label="Collaboration Workspaces">
       {/* ── Section Header ────────────────────────────────── */}
       <div className="groups-section-header">
         <div className="header-titles">
           <div className="groups-title-row">
-            <span className="groups-title-icon">👥</span>
-            <h2 className="groups-title">Collaboration Groups</h2>
-            <span className="groups-badge">{groups.length} {groups.length === 1 ? "group" : "groups"}</span>
+            <Building2 className="groups-title-icon-svg text-indigo-400" />
+            <h2 className="groups-title">Workspaces &amp; Teams</h2>
+            <span className="groups-badge">
+              {groups.length} {groups.length === 1 ? "workspace" : "workspaces"}
+            </span>
           </div>
           <p className="groups-subtitle">
-            Create groups, invite registered colleagues, share Google Meet links, and deploy your AI meeting bot together.
+            Organize meetings by team workspace, invite colleagues, share Google Meet links, and deploy AI recording agents together.
           </p>
         </div>
 
-        <button className="btn-create-group" onClick={handleOpenCreateModal}>
-          <span className="btn-plus-icon">+</span>
-          <span>Create New Group</span>
+        <button className="btn-create-group" onClick={handleOpenCreateModal} type="button">
+          <Plus className="w-4 h-4" />
+          <span>New Workspace</span>
         </button>
       </div>
 
@@ -350,35 +372,40 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
           <button
             className={`groups-tab-btn ${filterTab === "all" ? "active" : ""}`}
             onClick={() => setFilterTab("all")}
+            type="button"
           >
-            All Groups ({groups.length})
+            All Workspaces ({groups.length})
           </button>
           <button
             className={`groups-tab-btn ${filterTab === "admin" ? "active" : ""}`}
             onClick={() => setFilterTab("admin")}
+            type="button"
           >
-            👑 Created by Me ({groups.filter((g) => g.isAdmin).length})
+            <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+            <span>My Workspaces ({groups.filter((g) => g.isAdmin).length})</span>
           </button>
           <button
             className={`groups-tab-btn ${filterTab === "member" ? "active" : ""}`}
             onClick={() => setFilterTab("member")}
+            type="button"
           >
-            Joined as Member ({groups.filter((g) => !g.isAdmin).length})
+            <Users className="w-3.5 h-3.5 text-slate-400" />
+            <span>Member ({groups.filter((g) => !g.isAdmin).length})</span>
           </button>
         </div>
 
         <div className="groups-search-box">
-          <span className="search-icon">🔍</span>
+          <Search className="search-icon-svg" />
           <input
             type="text"
             className="groups-search-input"
-            placeholder="Filter groups by name..."
+            placeholder="Search workspaces…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
           {searchQuery && (
-            <button className="search-clear" onClick={() => setSearchQuery("")}>
-              ✕
+            <button className="search-clear" onClick={() => setSearchQuery("")} type="button">
+              <X className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
@@ -388,24 +415,27 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
       {loading && groups.length === 0 ? (
         <div className="groups-empty-state">
           <span className="spinner-dot" />
-          <p>Loading your groups...</p>
+          <p>Loading workspaces…</p>
         </div>
       ) : filteredGroups.length === 0 ? (
         <div className="groups-empty-state">
-          <span className="empty-state-icon">📂</span>
-          <h3>No groups found</h3>
+          <div className="empty-icon-wrap">
+            <Building2 className="empty-icon-svg" />
+          </div>
+          <h3>No workspaces found</h3>
           <p>
             {searchQuery
-              ? "No groups match your search criteria."
+              ? "No workspaces match your search keyword."
               : filterTab === "admin"
-              ? "You haven't created any groups yet. Click '+ Create New Group' above to get started!"
+              ? "You haven't created any workspaces yet. Click 'New Workspace' above to get started!"
               : filterTab === "member"
-              ? "You haven't been added to any groups yet."
-              : "Create your first group to share Google Meet links with participants."}
+              ? "You haven't been added to any team workspaces yet."
+              : "Create your first workspace to collaborate and share Google Meet rooms with team members."}
           </p>
           {!searchQuery && (
-            <button className="btn-empty-action" onClick={handleOpenCreateModal}>
-              + Create a Group Now
+            <button className="btn-empty-action" onClick={handleOpenCreateModal} type="button">
+              <Plus className="w-4 h-4" />
+              <span>Create Workspace</span>
             </button>
           )}
         </div>
@@ -425,8 +455,8 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                 {/* Active Meeting Banner */}
                 {hasActiveMeeting && (
                   <div className="live-meeting-ribbon">
-                    <span className="ribbon-pulse" />
-                    <span className="ribbon-text">LIVE MEET LINK ACTIVE</span>
+                    <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
+                    <span className="ribbon-text">LIVE MEETING ACTIVE</span>
                   </div>
                 )}
 
@@ -440,15 +470,17 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
 
                   <div className="group-role-badge-wrapper">
                     {group.isAdmin ? (
-                      <span className="role-badge role-badge-admin" title="You created this group">
-                        👑 You are Admin
+                      <span className="role-badge role-badge-admin" title="You created this workspace">
+                        <ShieldCheck className="w-3 h-3 text-indigo-400" />
+                        Admin
                       </span>
                     ) : (
                       <span
                         className="role-badge role-badge-member"
                         title={`Created by ${group.admin.name}`}
                       >
-                        👤 Member
+                        <User className="w-3 h-3 text-slate-400" />
+                        Member
                       </span>
                     )}
                   </div>
@@ -487,7 +519,8 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                   </div>
 
                   <span className="member-count-label">
-                    {totalMembersCount} {totalMembersCount === 1 ? "participant" : "participants"}
+                    <Users className="w-3.5 h-3.5 text-slate-400 inline mr-1" />
+                    {totalMembersCount} {totalMembersCount === 1 ? "member" : "members"}
                   </span>
                 </div>
 
@@ -495,7 +528,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                 {hasActiveMeeting ? (
                   <div className="card-meeting-banner" onClick={(e) => e.stopPropagation()}>
                     <div className="banner-left">
-                      <span className="banner-meet-icon">📹</span>
+                      <Video className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                       <div className="banner-details">
                         <span className="banner-title">Google Meet Ready</span>
                         <span className="banner-url">{group.activeMeeting?.url}</span>
@@ -510,15 +543,18 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                         className="btn-card-meet-join"
                         title="Join Google Meet in new tab"
                       >
-                        Join Room ↗
+                        <span>Join</span>
+                        <ExternalLink className="w-3 h-3" />
                       </a>
                       {group.isAdmin && (
                         <button
                           className="btn-card-bot-deploy"
                           onClick={() => handleLaunchBot(group.activeMeeting!.url)}
                           title="Deploy MeetMinutes bot to this room"
+                          type="button"
                         >
-                          🤖 Start Bot
+                          <Bot className="w-3 h-3" />
+                          <span>Bot</span>
                         </button>
                       )}
                     </div>
@@ -526,9 +562,12 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                 ) : (
                   <div className="card-footer-info">
                     <span className="footer-status-text">
-                      {group.isAdmin ? "Click to share a meeting link" : "No active meeting"}
+                      {group.isAdmin ? "Click to share a meeting link" : "No active session"}
                     </span>
-                    <span className="card-open-link">Open Group →</span>
+                    <span className="card-open-link">
+                      <span>Manage</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </span>
                   </div>
                 )}
               </div>
@@ -538,16 +577,15 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
       )}
 
       {/* ── CREATE GROUP MODAL ────────────────────────────── */}
-      {/* ── CREATE GROUP MODAL ────────────────────────────── */}
       {isCreateModalOpen && (
         <div className="group-modal-overlay" onClick={() => setIsCreateModalOpen(false)}>
           <div className="group-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="group-modal-header">
               <div className="modal-title-col">
                 <span className="modal-badge">New Workspace</span>
-                <h3 className="modal-heading">Create a New Group</h3>
+                <h3 className="modal-heading">Create a New Team Workspace</h3>
                 <p className="modal-subheading">
-                  You will be the admin of this group and can share Google Meet links and deploy the AI bot.
+                  You will manage this workspace and can share Google Meet sessions and dispatch the AI agent.
                 </p>
               </div>
               <button
@@ -556,7 +594,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                 onClick={() => setIsCreateModalOpen(false)}
                 aria-label="Close modal"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -564,19 +602,20 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
               <div className="group-modal-body">
                 {createError && (
                   <div className="form-alert form-alert-error">
-                    <span>⚠</span> {createError}
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>{createError}</span>
                   </div>
                 )}
 
                 <div className="form-group">
                   <label className="form-label" htmlFor="group-name-input">
-                    Group Name <span className="required-star">*</span>
+                    Workspace Name <span className="required-star">*</span>
                   </label>
                   <input
                     id="group-name-input"
                     type="text"
                     required
-                    placeholder="e.g. Engineering Sprint Review, Product Sync, AI Core Team"
+                    placeholder="e.g. Engineering Sprint Review, Executive Team"
                     className="form-input"
                     value={newGroupName}
                     onChange={(e) => setNewGroupName(e.target.value)}
@@ -591,7 +630,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                   <input
                     id="group-desc-input"
                     type="text"
-                    placeholder="e.g. Weekly standups and sprint planning discussions"
+                    placeholder="e.g. Weekly architecture reviews and sprint retrospectives"
                     className="form-input"
                     value={newGroupDesc}
                     onChange={(e) => setNewGroupDesc(e.target.value)}
@@ -604,10 +643,10 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                   <div className="selector-header">
                     <div className="selector-title-row">
                       <label className="form-label">
-                        Select Registered Participants ({selectedUserIds.length} selected)
+                        Select Workspace Members ({selectedUserIds.length} selected)
                       </label>
                       <span className="selector-hint">
-                        Selected users will see this group when they log in.
+                        Selected users will automatically see this workspace when logged in.
                       </span>
                     </div>
 
@@ -626,11 +665,11 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
 
                   {/* Search filter for users */}
                   <div className="user-search-wrapper">
-                    <span className="user-search-icon">🔍</span>
+                    <Search className="search-icon-svg" />
                     <input
                       type="text"
                       className="user-search-input"
-                      placeholder="Search by name or email..."
+                      placeholder="Filter members by name or email…"
                       value={userSearch}
                       onChange={(e) => setUserSearch(e.target.value)}
                     />
@@ -640,7 +679,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                         className="search-clear-mini"
                         onClick={() => setUserSearch("")}
                       >
-                        ✕
+                        <X className="w-3 h-3" />
                       </button>
                     )}
                   </div>
@@ -649,7 +688,8 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                   <div className="registered-users-list">
                     {registeredUsers.length === 0 ? (
                       <div className="users-empty-hint">
-                        <span>👤</span> No other registered users found in database yet.
+                        <User className="w-4 h-4 text-slate-400" />
+                        <span>No other registered users found in database yet.</span>
                       </div>
                     ) : filteredUsers.length === 0 ? (
                       <div className="users-empty-hint">
@@ -685,7 +725,12 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                               <span className="user-row-email">{u.email}</span>
                             </div>
 
-                            {isSelected && <span className="selected-check-badge">✓ Added</span>}
+                            {isSelected && (
+                              <span className="selected-check-badge">
+                                <Check className="w-3 h-3 text-emerald-400" />
+                                Added
+                              </span>
+                            )}
                           </div>
                         );
                       })
@@ -707,7 +752,9 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                   className="btn-modal-submit"
                   disabled={createLoading || !newGroupName.trim()}
                 >
-                  {createLoading ? "Creating Group..." : `Create Group (${selectedUserIds.length + 1} Members)`}
+                  {createLoading
+                    ? "Creating…"
+                    : `Create Workspace (${selectedUserIds.length + 1} Members)`}
                 </button>
               </div>
             </form>
@@ -722,12 +769,16 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
             <div className="group-modal-header">
               <div className="modal-title-col">
                 <div className="detail-badges-row">
-                  <span className="modal-badge">Group Workspace</span>
+                  <span className="modal-badge">Team Workspace</span>
                   {selectedGroup.isAdmin ? (
-                    <span className="role-badge role-badge-admin">👑 You are the Admin</span>
+                    <span className="role-badge role-badge-admin">
+                      <ShieldCheck className="w-3 h-3 text-indigo-400" />
+                      Admin
+                    </span>
                   ) : (
                     <span className="role-badge role-badge-member">
-                      👤 Created by {selectedGroup.admin.name}
+                      <User className="w-3 h-3 text-slate-400" />
+                      Created by {selectedGroup.admin.name}
                     </span>
                   )}
                 </div>
@@ -745,226 +796,238 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                 }}
                 aria-label="Close details"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
-
 
             <div className="group-modal-body">
               {/* Action Feedback alerts */}
               {groupActionMessage && (
                 <div className="form-alert form-alert-success">
-                  <span>✓</span> {groupActionMessage}
+                  <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span>{groupActionMessage}</span>
                 </div>
               )}
 
-            {groupActionError && (
-              <div className="form-alert form-alert-error">
-                <span>⚠</span> {groupActionError}
-              </div>
-            )}
+              {groupActionError && (
+                <div className="form-alert form-alert-error">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{groupActionError}</span>
+                </div>
+              )}
 
-            {/* ── Google Meet Link Hub ────────────────────── */}
-            <div className="group-meet-hub-card">
-              <div className="meet-hub-header">
-                <div className="hub-title-group">
-                  <span className="hub-icon">📹</span>
-                  <div>
-                    <h4 className="hub-heading">Google Meet Link Sharing</h4>
-                    <p className="hub-sub">
-                      {selectedGroup.isAdmin
-                        ? "Share a Google Meet URL with all group participants and launch the AI Bot."
-                        : "Meeting link shared by the group admin for this session."}
-                    </p>
+              {/* ── Google Meet Link Hub ────────────────────── */}
+              <div className="group-meet-hub-card">
+                <div className="meet-hub-header">
+                  <div className="hub-title-group">
+                    <div className="hub-icon-badge">
+                      <Video className="w-4 h-4 text-indigo-400" />
+                    </div>
+                    <div>
+                      <h4 className="hub-heading">Google Meet Session Sharing</h4>
+                      <p className="hub-sub">
+                        {selectedGroup.isAdmin
+                          ? "Share a Google Meet URL with all group participants and launch the AI Bot."
+                          : "Meeting link shared by the group admin for this session."}
+                      </p>
+                    </div>
                   </div>
+
+                  {selectedGroup.activeMeeting?.status === "active" && (
+                    <div className="hub-live-badge">
+                      <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
+                      <span>MEET ACTIVE</span>
+                    </div>
+                  )}
                 </div>
 
-                {selectedGroup.activeMeeting?.status === "active" && (
-                  <div className="hub-live-badge">
-                    <span className="ribbon-pulse" />
-                    <span>MEET ACTIVE</span>
+                {/* If Active Meeting Exists */}
+                {selectedGroup.activeMeeting?.status === "active" ? (
+                  <div className="active-meeting-box">
+                    <div className="active-link-display">
+                      <Link2 className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                      <a
+                        href={selectedGroup.activeMeeting.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="active-url-anchor"
+                        title="Open Google Meet in new tab"
+                      >
+                        {selectedGroup.activeMeeting.url}
+                      </a>
+                    </div>
+
+                    <div className="active-meet-buttons">
+                      <a
+                        href={selectedGroup.activeMeeting.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn-join-meet-direct"
+                      >
+                        <Video className="w-4 h-4" />
+                        <span>Join Google Meet</span>
+                        <ExternalLink className="w-3.5 h-3.5 ml-1" />
+                      </a>
+
+                      {/* Bot launch button: Available to Admin */}
+                      {selectedGroup.isAdmin && (
+                        <button
+                          className={`btn-deploy-bot-group ${botStatus !== "idle" ? "active-bot" : ""}`}
+                          onClick={() => handleLaunchBot(selectedGroup.activeMeeting!.url)}
+                          disabled={botStatus !== "idle"}
+                          type="button"
+                        >
+                          <Bot className="w-4 h-4" />
+                          <span>
+                            {botStatus === "idle"
+                              ? "Deploy AI Bot"
+                              : botStatus === "joining"
+                              ? "Bot Connecting…"
+                              : "Bot Active in Room"}
+                          </span>
+                        </button>
+                      )}
+
+                      {/* Admin: End Meeting */}
+                      {selectedGroup.isAdmin && (
+                        <button
+                          className="btn-end-meet-group"
+                          onClick={handleClearMeeting}
+                          disabled={sharingLoading}
+                          type="button"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>End Session</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="bot-status-indicator-bar">
+                      <span className="status-label">Meeting Agent:</span>
+                      <span
+                        className={`status-pill ${
+                          botStatus === "running"
+                            ? "status-pill-running"
+                            : botStatus === "joining"
+                            ? "status-pill-joining"
+                            : "status-pill-idle"
+                        }`}
+                      >
+                        <span className="pill-dot" />
+                        {botStatus === "running"
+                          ? "Bot is active in meeting & recording minutes"
+                          : botStatus === "joining"
+                          ? "Bot is joining the room…"
+                          : "Bot is ready to join"}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  /* No meeting active currently */
+                  <div className="no-active-meeting-box">
+                    {selectedGroup.isAdmin ? (
+                      <div className="admin-share-controls">
+                        <p className="admin-instruction">
+                          Paste a Google Meet link below to share with all {selectedGroup.members.length} participants:
+                        </p>
+                        <div className="share-input-row">
+                          <input
+                            type="url"
+                            className="meet-share-input"
+                            placeholder="https://meet.google.com/xxx-xxxx-xxx"
+                            value={meetUrlInput}
+                            onChange={(e) => {
+                              setMeetUrlInput(e.target.value);
+                              setGroupActionError(null);
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="btn-share-meet"
+                            onClick={handleShareMeeting}
+                            disabled={sharingLoading || !meetUrlInput.trim()}
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                            <span>{sharingLoading ? "Sharing…" : "Share with Group"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="member-waiting-notice">
+                        <Clock className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                        <p>
+                          No Google Meet session has been shared yet. When the admin (
+                          <strong>{selectedGroup.admin.name}</strong>) shares a link, it will appear
+                          here automatically.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
-              {/* If Active Meeting Exists */}
-              {selectedGroup.activeMeeting?.status === "active" ? (
-                <div className="active-meeting-box">
-                  <div className="active-link-display">
-                    <span className="link-icon">🔗</span>
-                    <a
-                      href={selectedGroup.activeMeeting.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="active-url-anchor"
-                      title="Open Google Meet in new tab"
-                    >
-                      {selectedGroup.activeMeeting.url}
-                    </a>
-                  </div>
-
-                  <div className="active-meet-buttons">
-                    <a
-                      href={selectedGroup.activeMeeting.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn-join-meet-direct"
-                    >
-                      <span>📹 Join Google Meet Room ↗</span>
-                    </a>
-
-                    {/* Bot launch button: Available to Admin */}
-                    {selectedGroup.isAdmin && (
-                      <button
-                        className={`btn-deploy-bot-group ${botStatus !== "idle" ? "active-bot" : ""}`}
-                        onClick={() => handleLaunchBot(selectedGroup.activeMeeting!.url)}
-                        disabled={botStatus !== "idle"}
-                      >
-                        <span>🤖</span>
-                        <span>
-                          {botStatus === "idle"
-                            ? "Deploy AI Bot to Meeting"
-                            : botStatus === "joining"
-                            ? "Bot Connecting…"
-                            : "Bot Active in Room"}
-                        </span>
-                      </button>
-                    )}
-
-                    {/* Admin: End Meeting */}
-                    {selectedGroup.isAdmin && (
-                      <button
-                        className="btn-end-meet-group"
-                        onClick={handleClearMeeting}
-                        disabled={sharingLoading}
-                      >
-                        ✕ End Meeting
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="bot-status-indicator-bar">
-                    <span className="status-label">Meeting Agent Status:</span>
-                    <span
-                      className={`status-pill ${
-                        botStatus === "running"
-                          ? "status-pill-running"
-                          : botStatus === "joining"
-                          ? "status-pill-joining"
-                          : "status-pill-idle"
-                      }`}
-                    >
-                      <span className="pill-dot" />
-                      {botStatus === "running"
-                        ? "Bot is active in meeting & recording minutes"
-                        : botStatus === "joining"
-                        ? "Bot is joining the room…"
-                        : "Bot is ready to join"}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                /* No meeting active currently */
-                <div className="no-active-meeting-box">
-                  {selectedGroup.isAdmin ? (
-                    <div className="admin-share-controls">
-                      <p className="admin-instruction">
-                        Paste a Google Meet link below to share with all {selectedGroup.members.length} participants:
-                      </p>
-                      <div className="share-input-row">
-                        <input
-                          type="url"
-                          className="meet-share-input"
-                          placeholder="https://meet.google.com/xxx-xxxx-xxx"
-                          value={meetUrlInput}
-                          onChange={(e) => {
-                            setMeetUrlInput(e.target.value);
-                            setGroupActionError(null);
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="btn-share-meet"
-                          onClick={handleShareMeeting}
-                          disabled={sharingLoading || !meetUrlInput.trim()}
-                        >
-                          {sharingLoading ? "Sharing…" : "Share with Group"}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="member-waiting-notice">
-                      <span className="waiting-icon">⏳</span>
-                      <p>
-                        No Google Meet link has been shared yet. When the admin (
-                        <strong>{selectedGroup.admin.name}</strong>) shares a link, it will appear
-                        here automatically.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* ── Group Participants List ────────────────── */}
-            <div className="group-members-section">
-              <div className="members-section-header">
-                <h4 className="members-heading">
-                  Group Participants ({(selectedGroup.members?.length || 0) + 1})
-                </h4>
-                <span className="members-subtitle">
-                  All participants listed here have access to shared meetings in this group.
-                </span>
-              </div>
-
-              <div className="members-table-wrap">
-                {/* Admin Row */}
-                <div className="member-card-row is-admin-row">
-                  <div className="member-avatar-col">
-                    <span
-                      className="member-avatar"
-                      style={{ backgroundColor: getAvatarColor(selectedGroup.admin.name) }}
-                    >
-                      {selectedGroup.admin.name[0]?.toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="member-info-col">
-                    <div className="member-name-row">
-                      <span className="member-name">{selectedGroup.admin.name}</span>
-                      <span className="admin-crown-badge">👑 Group Creator / Admin</span>
-                      {selectedGroup.admin.id === currentUser?.id && (
-                        <span className="you-badge">(You)</span>
-                      )}
-                    </div>
-                    <span className="member-email">{selectedGroup.admin.email}</span>
-                  </div>
+              {/* ── Group Participants List ────────────────── */}
+              <div className="group-members-section">
+                <div className="members-section-header">
+                  <h4 className="members-heading">
+                    Workspace Members ({(selectedGroup.members?.length || 0) + 1})
+                  </h4>
+                  <span className="members-subtitle">
+                    All participants listed here have access to shared sessions in this workspace.
+                  </span>
                 </div>
 
-                {/* Members Rows */}
-                {(selectedGroup.members || []).map((m) => (
-                  <div key={m.id} className="member-card-row">
+                <div className="members-table-wrap">
+                  {/* Admin Row */}
+                  <div className="member-card-row is-admin-row">
                     <div className="member-avatar-col">
                       <span
                         className="member-avatar"
-                        style={{ backgroundColor: getAvatarColor(m.name) }}
+                        style={{ backgroundColor: getAvatarColor(selectedGroup.admin.name) }}
                       >
-                        {m.name[0]?.toUpperCase()}
+                        {selectedGroup.admin.name[0]?.toUpperCase()}
                       </span>
                     </div>
                     <div className="member-info-col">
                       <div className="member-name-row">
-                        <span className="member-name">{m.name}</span>
-                        <span className="member-role-badge">Participant</span>
-                        {m.id === currentUser?.id && (
+                        <span className="member-name">{selectedGroup.admin.name}</span>
+                        <span className="admin-crown-badge">
+                          <ShieldCheck className="w-3 h-3 text-indigo-400" />
+                          Creator / Admin
+                        </span>
+                        {selectedGroup.admin.id === currentUser?.id && (
                           <span className="you-badge">(You)</span>
                         )}
                       </div>
-                      <span className="member-email">{m.email}</span>
+                      <span className="member-email">{selectedGroup.admin.email}</span>
                     </div>
                   </div>
-                ))}
+
+                  {/* Members Rows */}
+                  {(selectedGroup.members || []).map((m) => (
+                    <div key={m.id} className="member-card-row">
+                      <div className="member-avatar-col">
+                        <span
+                          className="member-avatar"
+                          style={{ backgroundColor: getAvatarColor(m.name) }}
+                        >
+                          {m.name[0]?.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="member-info-col">
+                        <div className="member-name-row">
+                          <span className="member-name">{m.name}</span>
+                          <span className="member-role-badge">Member</span>
+                          {m.id === currentUser?.id && (
+                            <span className="you-badge">(You)</span>
+                          )}
+                        </div>
+                        <span className="member-email">{m.email}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
             </div>
 
             {/* Modal Footer */}
@@ -975,7 +1038,8 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                   className="btn-delete-group-danger"
                   onClick={() => handleDeleteGroup(selectedGroup.id)}
                 >
-                  🗑 Delete Group
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Workspace</span>
                 </button>
               )}
               <button
@@ -989,7 +1053,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
           </div>
         </div>
       )}
-
     </section>
   );
 };
+

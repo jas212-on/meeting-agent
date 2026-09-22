@@ -4,6 +4,26 @@ import { INITIAL_MEETINGS, createNewMeetingRecord, formatDuration } from "./util
 import { MeetingHistory } from "./components/MeetingHistory";
 import { AttendanceDrawer } from "./components/AttendanceDrawer";
 import { GroupSection } from "./components/GroupSection";
+import {
+  Sparkles,
+  Zap,
+  Users,
+  FileText,
+  Link2,
+  Clipboard,
+  X,
+  Play,
+  Square,
+  ChevronDown,
+  ChevronRight,
+  Trash2,
+  LogOut,
+  Radio,
+  ArrowRight,
+  AlertCircle,
+  Terminal,
+  Bot
+} from "lucide-react";
 
 
 type Status = "idle" | "joining" | "running";
@@ -582,14 +602,14 @@ function App() {
       {/* ── Notification Banner ──────────────────────────── */}
       {notification && (
         <aside className="toast-notification" role="status" aria-live="polite">
-          <span className="toast-icon">✨</span>
-          <span>{notification}</span>
+          <Sparkles className="toast-icon" />
+          <span className="toast-text">{notification}</span>
           <button
             className="toast-close"
             onClick={() => setNotification(null)}
             aria-label="Dismiss notification"
           >
-            ✕
+            <X className="w-3.5 h-3.5" />
           </button>
         </aside>
       )}
@@ -597,7 +617,9 @@ function App() {
       {/* ── Top Navigation Bar ────────────────────────────── */}
       <header className="top-navbar">
         <div className="nav-brand">
-          <span className="brand-icon">🎙️</span>
+          <div className="brand-logo-badge">
+            <Bot className="brand-icon-svg" />
+          </div>
           <div className="brand-text-col">
             <h1 className="brand-title">
               Meet<span className="brand-accent">Minutes</span>
@@ -638,8 +660,9 @@ function App() {
                 </span>
                 <span className="user-name-text">{user.name}</span>
               </div>
-              <button className="nav-btn-ghost" onClick={handleLogout}>
-                Sign Out
+              <button className="nav-btn-ghost" onClick={handleLogout} title="Sign Out">
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sign Out</span>
               </button>
             </div>
           ) : (
@@ -674,20 +697,28 @@ function App() {
         <div className="auth-page-container">
           <div className="auth-card-wrapper">
             <div className="auth-header-block">
-              <span className="auth-logo-icon">🎙️</span>
+              <div className="auth-logo-badge">
+                <Bot className="w-8 h-8 text-indigo-400" />
+              </div>
               <h2 className="auth-title">
                 Meet<span className="brand-accent">Minutes</span>
                 <span className="brand-tld">.ai</span>
               </h2>
               <p className="auth-subtitle">
                 {authMode === "login"
-                  ? "Sign in to manage meetings, real-time agent transcripts, and attendance."
-                  : "Create an account to start deploying automated meeting bots."}
+                  ? "Sign in to deploy automated meeting bots, audit attendance, and access AI minutes."
+                  : "Create an account to start deploying automated meeting bots for your team."}
               </p>
               <div className="auth-features-preview">
-                <span className="auth-feature-tag">⚡ Live Bot</span>
-                <span className="auth-feature-tag">👥 Attendance</span>
-                <span className="auth-feature-tag">📄 PDF Minutes</span>
+                <span className="auth-feature-tag">
+                  <Zap className="w-3.5 h-3.5 text-indigo-400" /> Live Bot
+                </span>
+                <span className="auth-feature-tag">
+                  <Users className="w-3.5 h-3.5 text-emerald-400" /> Attendance Audit
+                </span>
+                <span className="auth-feature-tag">
+                  <FileText className="w-3.5 h-3.5 text-cyan-400" /> Executive Minutes
+                </span>
               </div>
             </div>
 
@@ -717,7 +748,8 @@ function App() {
             <form className="modal-form" onSubmit={handleAuthSubmit}>
               {authError && (
                 <div className="form-error">
-                  <span>⚠</span> {authError}
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{authError}</span>
                 </div>
               )}
 
@@ -771,7 +803,7 @@ function App() {
 
               <button type="submit" className="form-submit-btn" disabled={authLoading}>
                 {authLoading
-                  ? "Processing…"
+                  ? "Authenticating…"
                   : authMode === "login"
                   ? "Sign In to Dashboard"
                   : "Create Free Account"}
@@ -785,7 +817,8 @@ function App() {
                 onClick={handleDemoLogin}
                 disabled={authLoading}
               >
-                <span>✨</span> Instant Demo Login (One Click)
+                <Sparkles className="w-4 h-4 text-indigo-400" />
+                <span>Instant Demo Login (One Click)</span>
               </button>
 
               <button
@@ -793,178 +826,197 @@ function App() {
                 className="guest-continue-btn"
                 onClick={() => setCurrentView("dashboard")}
               >
-                Skip &amp; Explore Dashboard as Guest →
+                <span>Continue as Guest</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
         </div>
       ) : (
         <main className="dashboard-content">
-        {/* ── Join Meeting Command Center ─────────────────── */}
-        <section className="join-hero-card" aria-label="Meeting Controls">
-          <div className="hero-header">
-            <div className="hero-title-group">
-              <span className="hero-badge">AI Assistant Hub</span>
-              <h2 className="hero-heading">Join Google Meet Room</h2>
-              <p className="hero-tagline">
-                Send your AI agent to attend, record transcripts, map attendance, and compile minutes.
-              </p>
+          {/* ── Join Meeting Command Center ─────────────────── */}
+          <section className="join-hero-card" aria-label="Meeting Controls">
+            <div className="hero-header">
+              <div className="hero-title-group">
+                <span className="hero-badge">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  Autonomous Agent
+                </span>
+                <h2 className="hero-heading">Join Google Meet Room</h2>
+                <p className="hero-tagline">
+                  Deploy your AI agent to join calls, transcribe audio in real time, record attendee presence, and compile structured executive minutes.
+                </p>
+              </div>
+
+              {status !== "idle" && (
+                <div className="live-meeting-indicator">
+                  <span className="live-pulse-dot" />
+                  <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                  <span className="live-label">
+                    {status === "joining" ? "CONNECTING BOT…" : "MEETING IN PROGRESS"}
+                  </span>
+                  <span className="live-timer">{formatDuration(elapsedSeconds)}</span>
+                </div>
+              )}
             </div>
 
-            {status !== "idle" && (
-              <div className="live-meeting-indicator">
-                <span className="live-pulse-dot" />
-                <span className="live-label">
-                  {status === "joining" ? "CONNECTING BOT…" : "MEETING IN PROGRESS"}
-                </span>
-                <span className="live-timer">{formatDuration(elapsedSeconds)}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Join Input Bar */}
-          <div className="join-input-bar">
-            <div className="input-wrapper">
-              <span className="input-icon">🔗</span>
-              <input
-                id="meeting-url"
-                type="url"
-                className="meet-url-input"
-                placeholder="Paste Google Meet link (e.g. https://meet.google.com/xyz-qwer-tyu)"
-                value={url}
-                onChange={(e) => {
-                  setUrl(e.target.value);
-                  setError(null);
-                }}
-                disabled={status !== "idle"}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleJoin();
-                }}
-              />
-              {url ? (
-                <button
-                  className="input-clear-btn"
-                  onClick={() => setUrl("")}
-                  title="Clear input"
+            {/* Join Input Bar */}
+            <div className="join-input-bar">
+              <div className="input-wrapper">
+                <Link2 className="input-icon-svg" />
+                <input
+                  id="meeting-url"
+                  type="url"
+                  className="meet-url-input"
+                  placeholder="Paste Google Meet link (e.g. https://meet.google.com/abc-defg-hij)"
+                  value={url}
+                  onChange={(e) => {
+                    setUrl(e.target.value);
+                    setError(null);
+                  }}
                   disabled={status !== "idle"}
-                >
-                  ✕
-                </button>
-              ) : (
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleJoin();
+                  }}
+                />
+                {url ? (
+                  <button
+                    className="input-clear-btn"
+                    onClick={() => setUrl("")}
+                    title="Clear input"
+                    disabled={status !== "idle"}
+                    type="button"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    className="input-paste-btn"
+                    onClick={handlePasteClipboard}
+                    title="Paste from clipboard"
+                    type="button"
+                  >
+                    <Clipboard className="w-3.5 h-3.5" />
+                    <span>Paste</span>
+                  </button>
+                )}
+              </div>
+
+              {status === "idle" ? (
                 <button
-                  className="input-paste-btn"
-                  onClick={handlePasteClipboard}
-                  title="Paste from clipboard"
-                  type="button"
+                  id="join-btn"
+                  className="btn-join-primary"
+                  disabled={!isValidUrl}
+                  onClick={() => handleJoin()}
                 >
-                  📋 Paste
+                  <Play className="btn-icon-svg fill-current" />
+                  <span>Join &amp; Record</span>
+                </button>
+              ) : (
+                <button id="leave-btn" className="btn-leave-danger" onClick={handleLeave}>
+                  <Square className="btn-icon-svg fill-current" />
+                  <span>Leave &amp; Finalize ({formatDuration(elapsedSeconds)})</span>
                 </button>
               )}
             </div>
 
-            {status === "idle" ? (
+            {/* Hints & Errors */}
+            {url && !isValidUrl && (
+              <p className="field-hint field-hint-error">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 inline mr-1" />
+                Please enter a valid Google Meet link (format: https://meet.google.com/xxx-xxxx-xxx)
+              </p>
+            )}
+            {error && (
+              <p className="field-hint field-hint-error">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 inline mr-1" />
+                {error}
+              </p>
+            )}
+
+            {/* Active Meeting Hub Live Banner */}
+            {status !== "idle" && (
+              <div className="active-session-hub">
+                <div className="audio-wave-visualizer">
+                  <span className="wave-bar bar-1" />
+                  <span className="wave-bar bar-2" />
+                  <span className="wave-bar bar-3" />
+                  <span className="wave-bar bar-4" />
+                  <span className="wave-bar bar-5" />
+                </div>
+                <div className="active-session-info">
+                  <span className="session-info-title">
+                    {status === "joining"
+                      ? "Agent is authenticating and entering lobby…"
+                      : "MeetMinutes bot is actively capturing audio and monitoring participant attendance."}
+                  </span>
+                  <span className="session-info-sub">
+                    When the meeting concludes, click &quot;Leave &amp; Finalize&quot; to compile your minutes and generate PDF documentation.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Live Diagnostic Logs Toggle */}
+            <div className="logs-toggle-row">
               <button
-                id="join-btn"
-                className="btn-join-primary"
-                disabled={!isValidUrl}
-                onClick={() => handleJoin()}
+                className="btn-logs-toggle"
+                onClick={() => setShowLogsConsole(!showLogsConsole)}
               >
-                <span className="btn-icon">▶</span>
-                <span>Join &amp; Record</span>
+                {showLogsConsole ? (
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                )}
+                <Terminal className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Agent System Logs ({logs.length} events)</span>
               </button>
-            ) : (
-              <button id="leave-btn" className="btn-leave-danger" onClick={handleLeave}>
-                <span className="btn-icon">■</span>
-                <span>Leave &amp; Finalize ({formatDuration(elapsedSeconds)})</span>
-              </button>
-            )}
-          </div>
-
-          {/* Hints & Errors */}
-          {url && !isValidUrl && (
-            <p className="field-hint field-hint-error">
-              ⚠ Please enter a valid Google Meet link (format: https://meet.google.com/xxx-xxxx-xxx)
-            </p>
-          )}
-          {error && <p className="field-hint field-hint-error">⚠ {error}</p>}
-
-          {/* Active Meeting Hub Live Banner */}
-          {status !== "idle" && (
-            <div className="active-session-hub">
-              <div className="audio-wave-visualizer">
-                <span className="wave-bar bar-1" />
-                <span className="wave-bar bar-2" />
-                <span className="wave-bar bar-3" />
-                <span className="wave-bar bar-4" />
-                <span className="wave-bar bar-5" />
-              </div>
-              <div className="active-session-info">
-                <span className="session-info-title">
-                  {status === "joining"
-                    ? "Agent is authenticating and entering lobby…"
-                    : "MeetMinutes bot is actively transcribing audio and recording attendance."}
-                </span>
-                <span className="session-info-sub">
-                  When the meeting ends, click &quot;Leave &amp; Finalize&quot; to compile your minutes and
-                  PDF.
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Live Diagnostic Logs Toggle */}
-          <div className="logs-toggle-row">
-            <button
-              className="btn-logs-toggle"
-              onClick={() => setShowLogsConsole(!showLogsConsole)}
-            >
-              <span className="toggle-icon">{showLogsConsole ? "▼" : "▶"}</span>
-              <span>Agent System Logs ({logs.length} events)</span>
-            </button>
-            {logs.length > 0 && showLogsConsole && (
-              <button className="btn-logs-clear" onClick={() => setLogs([])}>
-                Clear logs
-              </button>
-            )}
-          </div>
-
-          {/* Collapsible Log Console */}
-          {showLogsConsole && (
-            <div className="logs-console-box">
-              {logs.length === 0 ? (
-                <p className="log-empty-msg">No logs generated yet. Join a meeting to view output.</p>
-              ) : (
-                logs.map((line, i) => (
-                  <div key={i} className="log-entry">
-                    {line}
-                  </div>
-                ))
+              {logs.length > 0 && showLogsConsole && (
+                <button className="btn-logs-clear" onClick={() => setLogs([])}>
+                  <Trash2 className="w-3 h-3" />
+                  <span>Clear logs</span>
+                </button>
               )}
-              <div ref={logEndRef} />
             </div>
-          )}
-        </section>
 
-        {/* ── Collaboration Groups & Workspaces ───────────── */}
-        <GroupSection
-          token={token}
-          currentUser={user}
-          botStatus={status}
-          onJoinMeeting={(meetUrl) => handleJoin(meetUrl)}
-          onOpenAuthModal={() => {
-            setAuthMode("login");
-            setCurrentView("auth");
-          }}
-        />
+            {/* Collapsible Log Console */}
+            {showLogsConsole && (
+              <div className="logs-console-box">
+                {logs.length === 0 ? (
+                  <p className="log-empty-msg">No logs generated yet. Join a meeting to view real-time events.</p>
+                ) : (
+                  logs.map((line, i) => (
+                    <div key={i} className="log-entry">
+                      <span className="log-prefix">&gt;</span>
+                      <span className="log-text">{line}</span>
+                    </div>
+                  ))
+                )}
+                <div ref={logEndRef} />
+              </div>
+            )}
+          </section>
 
-        {/* ── Meeting History Section ─────────────────────── */}
-        <MeetingHistory
-          meetings={meetings}
-          onSelectMeeting={handleSelectMeeting}
-          onDeleteMeeting={handleDeleteMeeting}
-          onRestoreDefaults={handleRestoreDefaults}
-        />
-      </main>
+          {/* ── Collaboration Groups & Workspaces ───────────── */}
+          <GroupSection
+            token={token}
+            currentUser={user}
+            botStatus={status}
+            onJoinMeeting={(meetUrl) => handleJoin(meetUrl)}
+            onOpenAuthModal={() => {
+              setAuthMode("login");
+              setCurrentView("auth");
+            }}
+          />
+
+          {/* ── Meeting History Section ─────────────────────── */}
+          <MeetingHistory
+            meetings={meetings}
+            onSelectMeeting={handleSelectMeeting}
+            onDeleteMeeting={handleDeleteMeeting}
+            onRestoreDefaults={handleRestoreDefaults}
+          />
+        </main>
       )}
 
       {/* ── Slide-out Attendance & Minutes Side Drawer ──── */}
@@ -985,7 +1037,7 @@ function App() {
               aria-label="Close"
               onClick={() => setShowAuthModal(false)}
             >
-              &times;
+              <X className="w-4 h-4" />
             </button>
 
             <div className="modal-tabs">
@@ -1010,7 +1062,12 @@ function App() {
             </div>
 
             <form className="modal-form" onSubmit={handleAuthSubmit}>
-              {authError && <div className="form-error">{authError}</div>}
+              {authError && (
+                <div className="form-error">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{authError}</span>
+                </div>
+              )}
 
               {authMode === "register" && (
                 <div className="form-group">
@@ -1062,7 +1119,7 @@ function App() {
 
               <button type="submit" className="form-submit-btn" disabled={authLoading}>
                 {authLoading
-                  ? "Processing…"
+                  ? "Authenticating…"
                   : authMode === "login"
                   ? "Sign In"
                   : "Create Account"}
@@ -1075,7 +1132,7 @@ function App() {
       {/* ── Footer ──────────────────────────────────────── */}
       <footer className="footer-bar">
         <p className="footer-text">
-          MeetMinutes.ai &middot; Enterprise AI Meeting Assistant with Automated Attendance &amp; Minutes
+          MeetMinutes.ai &middot; Enterprise Meeting Intelligence &middot; Automated Transcripts &amp; Attendance
         </p>
       </footer>
     </div>
@@ -1083,3 +1140,4 @@ function App() {
 }
 
 export default App;
+

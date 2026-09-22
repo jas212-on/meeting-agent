@@ -40,6 +40,15 @@ export interface MeetingMinutes {
   }[];
 }
 
+export interface TranscriptEntry {
+  id: string;
+  speaker: string;
+  role: "Host" | "Co-host" | "Speaker" | "Attendee" | "Assistant";
+  text: string;
+  timestamp: string;
+  avatarColor?: string;
+}
+
 export interface MeetingRecord {
   id: string; // Meeting ID or code (e.g., 'abc-defg-hij')
   title: string;
@@ -51,6 +60,7 @@ export interface MeetingRecord {
   url: string;
   attendees: Attendee[];
   minutes: MeetingMinutes;
+  transcript?: TranscriptEntry[];
   status: "completed" | "in-progress" | "scheduled";
 }
 

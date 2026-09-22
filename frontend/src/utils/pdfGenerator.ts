@@ -76,7 +76,7 @@ export function generateMeetingMinutesPDF(meeting: MeetingRecord): void {
   // 1. Executive Summary
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
-  doc.setTextColor(79, 70, 229); // Indigo-600
+  doc.setTextColor(180, 83, 9); // Indigo-600
   doc.text("1. Executive Summary", margin, currentY);
 
   currentY += 6;
@@ -93,7 +93,7 @@ export function generateMeetingMinutesPDF(meeting: MeetingRecord): void {
   checkPageBreak(15);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
-  doc.setTextColor(79, 70, 229);
+  doc.setTextColor(180, 83, 9);
   doc.text("2. Key Decisions & Agreements", margin, currentY);
 
   currentY += 6;
@@ -114,7 +114,7 @@ export function generateMeetingMinutesPDF(meeting: MeetingRecord): void {
   checkPageBreak(20);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
-  doc.setTextColor(79, 70, 229);
+  doc.setTextColor(180, 83, 9);
   doc.text("3. Action Items & Next Steps", margin, currentY);
 
   currentY += 6;
@@ -138,7 +138,7 @@ export function generateMeetingMinutesPDF(meeting: MeetingRecord): void {
   checkPageBreak(25);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
-  doc.setTextColor(79, 70, 229);
+  doc.setTextColor(180, 83, 9);
   doc.text("4. Attendance & Participation Record", margin, currentY);
 
   currentY += 6;

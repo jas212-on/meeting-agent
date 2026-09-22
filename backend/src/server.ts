@@ -6,6 +6,7 @@ import authRoutes from "./routes/authRoutes.js";
 import meetingRoutes from "./routes/meetingRoutes.js";
 import meetingDataRoutes from "./routes/meetingDataRoutes.js";
 import groupRoutes from "./routes/groupRoutes.js";
+import chatRoutes from "./routes/chatRoutes.js";
 import { apiLimiter } from "./middleware/rateLimiter.js";
 
 
@@ -55,6 +56,7 @@ app.get("/api/health", (_req: Request, res: Response) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/groups", groupRoutes);
 app.use("/api/meetings", meetingDataRoutes);
+app.use("/api/chat", chatRoutes);
 app.use("/api", meetingRoutes);
 
 

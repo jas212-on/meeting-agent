@@ -349,7 +349,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
       <div className="groups-section-header">
         <div className="header-titles">
           <div className="groups-title-row">
-            <Building2 className="groups-title-icon-svg text-indigo-400" />
+            <Building2 className="groups-title-icon-svg text-amber-400" />
             <h2 className="groups-title">Workspaces &amp; Teams</h2>
             <span className="groups-badge">
               {groups.length} {groups.length === 1 ? "workspace" : "workspaces"}
@@ -381,7 +381,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
             onClick={() => setFilterTab("admin")}
             type="button"
           >
-            <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+            <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
             <span>My Workspaces ({groups.filter((g) => g.isAdmin).length})</span>
           </button>
           <button
@@ -471,7 +471,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                   <div className="group-role-badge-wrapper">
                     {group.isAdmin ? (
                       <span className="role-badge role-badge-admin" title="You created this workspace">
-                        <ShieldCheck className="w-3 h-3 text-indigo-400" />
+                        <ShieldCheck className="w-3 h-3 text-amber-400" />
                         Admin
                       </span>
                     ) : (
@@ -772,7 +772,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                   <span className="modal-badge">Team Workspace</span>
                   {selectedGroup.isAdmin ? (
                     <span className="role-badge role-badge-admin">
-                      <ShieldCheck className="w-3 h-3 text-indigo-400" />
+                      <ShieldCheck className="w-3 h-3 text-amber-400" />
                       Admin
                     </span>
                   ) : (
@@ -821,7 +821,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                 <div className="meet-hub-header">
                   <div className="hub-title-group">
                     <div className="hub-icon-badge">
-                      <Video className="w-4 h-4 text-indigo-400" />
+                      <Video className="w-4 h-4 text-amber-400" />
                     </div>
                     <div>
                       <h4 className="hub-heading">Google Meet Session Sharing</h4>
@@ -992,7 +992,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                       <div className="member-name-row">
                         <span className="member-name">{selectedGroup.admin.name}</span>
                         <span className="admin-crown-badge">
-                          <ShieldCheck className="w-3 h-3 text-indigo-400" />
+                          <ShieldCheck className="w-3 h-3 text-amber-400" />
                           Creator / Admin
                         </span>
                         {selectedGroup.admin.id === currentUser?.id && (

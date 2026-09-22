@@ -1,4 +1,4 @@
-import type { MeetingRecord, Attendee, MeetingMinutes } from "../types";
+import type { MeetingRecord, Attendee, MeetingMinutes, TranscriptEntry } from "../types";
 
 export const INITIAL_MEETINGS: MeetingRecord[] = [
   {
@@ -388,6 +388,33 @@ export function createNewMeetingRecord(
     ],
   };
 
+  const transcript: TranscriptEntry[] = [
+    {
+      id: `tr-rec-1-${Date.now()}`,
+      speaker: hostName,
+      role: "Host",
+      text: `Connecting into meeting room ${meetingId}. Audio channel active.`,
+      timestamp: "00:00:08",
+      avatarColor: "#2563eb",
+    },
+    {
+      id: `tr-rec-2-${Date.now()}`,
+      speaker: "MeetMinutes AI Agent",
+      role: "Assistant",
+      text: "Autonomous scribe connected. Voice stream transcribing with low latency.",
+      timestamp: "00:00:22",
+      avatarColor: "#10b981",
+    },
+    {
+      id: `tr-rec-3-${Date.now()}`,
+      speaker: hostName,
+      role: "Host",
+      text: "Confirming all action items and meeting agenda recorded.",
+      timestamp: "00:01:05",
+      avatarColor: "#2563eb",
+    },
+  ];
+
   return {
     id: meetingId,
     title: `Google Meet Session (${meetingId})`,
@@ -399,6 +426,73 @@ export function createNewMeetingRecord(
     url: url.trim(),
     attendees,
     minutes,
+    transcript,
     status: "completed",
   };
+}
+
+export function generateFallbackTranscript(meeting: MeetingRecord): TranscriptEntry[] {
+  if (meeting.transcript && meeting.transcript.length > 0) {
+    return meeting.transcript;
+  }
+  const attendees = meeting.attendees.length > 0 ? meeting.attendees : [
+    { name: "Host", role: "Host" as const, avatarColor: "#2563eb" },
+    { name: "MeetMinutes AI Agent", role: "Speaker" as const, avatarColor: "#10b981" },
+  ];
+  const host = attendees[0];
+  const second = attendees[1] || attendees[0];
+
+  const dialogue: TranscriptEntry[] = [
+    {
+      id: `tr-gen-1-${meeting.id}`,
+      speaker: host.name,
+      role: (host.role as any) || "Host",
+      text: `Hello everyone, welcome to "${meeting.title}". Let's kick off today's agenda items and track action assignments.`,
+      timestamp: "00:00:15",
+      avatarColor: host.avatarColor || "#2563eb",
+    },
+    {
+      id: `tr-gen-2-${meeting.id}`,
+      speaker: second.name,
+      role: (second.role as any) || "Speaker",
+      text: `Thanks ${host.name.split(" ")[0]}! Audio and screen share are running smoothly on our end.`,
+      timestamp: "00:01:02",
+      avatarColor: second.avatarColor || "#4f46e5",
+    },
+    {
+      id: `tr-gen-3-${meeting.id}`,
+      speaker: "MeetMinutes AI Agent",
+      role: "Assistant",
+      text: "Autonomous scribe connected. Voice transcription is active and capturing dialogue in real-time.",
+      timestamp: "00:01:25",
+      avatarColor: "#10b981",
+    },
+  ];
+
+  if (meeting.minutes.discussionTopics && meeting.minutes.discussionTopics.length > 0) {
+    meeting.minutes.discussionTopics.forEach((topic, idx) => {
+      const speaker = attendees[(idx + 1) % attendees.length];
+      dialogue.push({
+        id: `tr-gen-top-${meeting.id}-${idx}`,
+        speaker: speaker.name,
+        role: (speaker.role as any) || "Speaker",
+        text: `Regarding topic "${topic.topic}": ${topic.notes}`,
+        timestamp: topic.time ? topic.time.split(" - ")[0] : `00:${String(5 + idx * 8).padStart(2, "0")}:00`,
+        avatarColor: speaker.avatarColor || "#3b82f6",
+      });
+    });
+  }
+
+  if (meeting.minutes.keyDecisions && meeting.minutes.keyDecisions.length > 0) {
+    dialogue.push({
+      id: `tr-gen-dec-${meeting.id}`,
+      speaker: host.name,
+      role: (host.role as any) || "Host",
+      text: `To summarize our core decision: ${meeting.minutes.keyDecisions[0]}`,
+      timestamp: "00:22:40",
+      avatarColor: host.avatarColor || "#2563eb",
+    });
+  }
+
+  return dialogue;
 }

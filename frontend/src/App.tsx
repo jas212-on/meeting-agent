@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback, type FormEvent } from "react";
-import type { MeetingRecord } from "./types";
+import type { MeetingRecord, TranscriptEntry } from "./types";
 import { INITIAL_MEETINGS, createNewMeetingRecord, formatDuration } from "./utils/mockData";
+import { consolidateTranscripts } from "./utils/transcriptUtils";
 import { MeetingHistory } from "./components/MeetingHistory";
-import { AttendanceDrawer } from "./components/AttendanceDrawer";
 import { GroupSection } from "./components/GroupSection";
+import { AskMeetingsModal } from "./components/AskMeetingsModal";
+import { MeetingDetailPage } from "./components/MeetingDetailPage";
 import {
   Sparkles,
   Zap,
@@ -17,12 +19,14 @@ import {
   ChevronDown,
   ChevronRight,
   Trash2,
-  LogOut,
   Radio,
   ArrowRight,
   AlertCircle,
   Terminal,
-  Bot
+  Bot,
+  Bell,
+  Sun,
+  Moon
 } from "lucide-react";
 
 
@@ -73,15 +77,53 @@ function App() {
     return INITIAL_MEETINGS;
   });
 
-  // Selected meeting for side drawer
+  // Selected meeting for detail view
   const [selectedMeeting, setSelectedMeeting] = useState<MeetingRecord | null>(null);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerInitialTab, setDrawerInitialTab] = useState<"attendance" | "minutes">("minutes");
+  const [liveTranscripts, setLiveTranscripts] = useState<TranscriptEntry[]>([]);
+
+  // Ask AI Knowledge Assistant state
+  const [isAskAiOpen, setIsAskAiOpen] = useState(false);
+  const [askAiMeetingId, setAskAiMeetingId] = useState<string | null>(null);
+
+  const handleOpenAskAi = (targetMeetingId?: string) => {
+    setAskAiMeetingId(targetMeetingId || null);
+    setIsAskAiOpen(true);
+  };
+
+  // Theme state: "light" | "dark" (persisted)
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    try {
+      const saved = localStorage.getItem("meetminutes_theme");
+      if (saved === "dark" || saved === "light") return saved;
+    } catch {
+      // fallback
+    }
+    return "light";
+  });
+
+  useEffect(() => {
+    try {
+      document.documentElement.setAttribute("data-theme", theme);
+      if (theme === "dark") {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+      localStorage.setItem("meetminutes_theme", theme);
+    } catch (e) {
+      console.warn("Theme save error", e);
+    }
+  }, [theme]);
+
+  const handleToggleTheme = () => {
+    setTheme((prev) => (prev === "light" ? "dark" : "light"));
+  };
 
   // Auth states
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("auth_token"));
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [currentView, setCurrentView] = useState<"dashboard" | "auth">(() => {
+  const [currentView, setCurrentView] = useState<"dashboard" | "auth" | "meeting-detail">(() => {
     // If auth token exists in localStorage, start on dashboard; otherwise show auth page
     return localStorage.getItem("auth_token") ? "dashboard" : "auth";
   });
@@ -201,6 +243,43 @@ function App() {
       es.onmessage = (e) => {
         const line = JSON.parse(e.data) as string;
         setLogs((prev) => [...prev.slice(-200), line]);
+
+        // Capture live speech transcripts streamed over SSE
+        if (line.startsWith("[LIVE_TRANSCRIPT] ") || line.startsWith("[LIVE_TRANSCRIPT_UPDATE] ")) {
+          try {
+            const isUpdate = line.startsWith("[LIVE_TRANSCRIPT_UPDATE] ");
+            const rawJson = line.slice(isUpdate ? "[LIVE_TRANSCRIPT_UPDATE] ".length : "[LIVE_TRANSCRIPT] ".length);
+            const entry: TranscriptEntry = JSON.parse(rawJson);
+            setLiveTranscripts((prev) => {
+              const existingIdx = prev.findIndex((t) => t.id === entry.id);
+              if (existingIdx >= 0) {
+                const updated = [...prev];
+                updated[existingIdx] = { ...updated[existingIdx], text: entry.text, timestamp: entry.timestamp };
+                return consolidateTranscripts(updated);
+              }
+              return consolidateTranscripts([...prev, entry]);
+            });
+            setSelectedMeeting((prev) => {
+              if (!prev) return prev;
+              const prevList = prev.transcript || [];
+              const existingIdx = prevList.findIndex((t) => t.id === entry.id);
+              let updatedList: TranscriptEntry[];
+              if (existingIdx >= 0) {
+                updatedList = [...prevList];
+                updatedList[existingIdx] = { ...updatedList[existingIdx], text: entry.text, timestamp: entry.timestamp };
+              } else {
+                updatedList = [...prevList, entry];
+              }
+              return {
+                ...prev,
+                transcript: consolidateTranscripts(updatedList),
+              };
+            });
+          } catch (err) {
+            console.warn("Could not parse LIVE_TRANSCRIPT SSE:", err);
+          }
+        }
+
         if (
           line.includes("successfully recorded in MongoDB Atlas") ||
           line.includes("Process exited with code")
@@ -229,7 +308,7 @@ function App() {
       fetchMeetings();
 
       setDrawerInitialTab("attendance");
-      setIsDrawerOpen(true);
+      setCurrentView("meeting-detail");
       setNotification(`Meeting concluded. Syncing attendance & AI summary...`);
 
       // If backend is offline, save local fallback record
@@ -305,6 +384,7 @@ function App() {
     }
     setError(null);
     setLogs([]);
+    setLiveTranscripts([]);
     currentMeetingUrlRef.current = meetingUrl;
     activeMeetingStartTimeRef.current = Date.now();
     setElapsedSeconds(0);
@@ -350,6 +430,25 @@ function App() {
 
     setTimeout(() => {
       setStatus("running");
+      const demoTranscriptEntries: TranscriptEntry[] = [
+        {
+          id: `demo-tr-1-${Date.now()}`,
+          speaker: user?.name || "Alex Morgan",
+          role: "Speaker",
+          text: "Hi team, let's review the architectural items and sync on delivery schedules.",
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+          avatarColor: "#2563eb",
+        },
+        {
+          id: `demo-tr-2-${Date.now()}`,
+          speaker: "MeetMinutes AI Agent",
+          role: "Assistant",
+          text: "Meeting bot initialized. Voice transcribed audio streams are active and streaming live.",
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+          avatarColor: "#10b981",
+        },
+      ];
+      setLiveTranscripts(demoTranscriptEntries);
       setLogs((prev) => [
         ...prev,
         "[demo-agent] Successfully entered meeting lobby",
@@ -399,14 +498,17 @@ function App() {
   const handleSelectMeeting = (meeting: MeetingRecord, tab: "attendance" | "minutes" = "minutes") => {
     setSelectedMeeting(meeting);
     setDrawerInitialTab(tab);
-    setIsDrawerOpen(true);
+    setCurrentView("meeting-detail");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleDeleteMeeting = async (meetingId: string) => {
     setMeetings((prev) => prev.filter((m) => m.id !== meetingId));
     if (selectedMeeting?.id === meetingId) {
-      setIsDrawerOpen(false);
       setSelectedMeeting(null);
+      if (currentView === "meeting-detail") {
+        setCurrentView("dashboard");
+      }
     }
 
     try {
@@ -598,7 +700,7 @@ function App() {
   };
 
   return (
-    <div className="dashboard-container">
+    <div className={`dashboard-container ${currentView === "meeting-detail" ? "meeting-view-active" : ""}`}>
       {/* ── Notification Banner ──────────────────────────── */}
       {notification && (
         <aside className="toast-notification" role="status" aria-live="polite">
@@ -616,7 +718,7 @@ function App() {
 
       {/* ── Top Navigation Bar ────────────────────────────── */}
       <header className="top-navbar">
-        <div className="nav-brand">
+        <div className="nav-brand" onClick={() => setCurrentView("dashboard")} style={{ cursor: "pointer" }}>
           <div className="brand-logo-badge">
             <Bot className="brand-icon-svg" />
           </div>
@@ -625,68 +727,115 @@ function App() {
               Meet<span className="brand-accent">Minutes</span>
               <span className="brand-tld">.ai</span>
             </h1>
-            <span className="brand-subtitle">Autonomous Meeting Agent</span>
+            <span className="brand-subtitle">Your AI Meeting Companion</span>
           </div>
         </div>
 
-        {/* Status Indicators & Auth */}
-        <div className="nav-actions">
-          {/* Navigation view buttons */}
+        {/* Center Tabs: Dashboard, Meetings, Groups, Calendar */}
+        <nav className="nav-center-tabs">
           <button
-            className={`nav-link-btn ${currentView === "dashboard" ? "active" : ""}`}
-            onClick={() => setCurrentView("dashboard")}
+            type="button"
+            className={`nav-tab-item ${currentView === "dashboard" && !selectedMeeting ? "active" : ""}`}
+            onClick={() => {
+              setSelectedMeeting(null);
+              setCurrentView("dashboard");
+            }}
           >
             Dashboard
           </button>
-
-          {/* Backend connectivity indicator */}
-          <div
-            className={`server-status-pill ${isBackendOnline ? "status-online" : "status-demo"}`}
-            title={
-              isBackendOnline
-                ? "Connected to Meeting Agent backend (Port 3001)"
-                : "Backend server offline. Interactive Demo Mode active."
-            }
+          <button
+            type="button"
+            className={`nav-tab-item ${currentView === "meeting-detail" ? "active" : ""}`}
+            onClick={() => {
+              if (selectedMeeting) {
+                setCurrentView("meeting-detail");
+              } else if (meetings.length > 0) {
+                setSelectedMeeting(meetings[0]);
+                setCurrentView("meeting-detail");
+              }
+            }}
           >
-            <span className="status-indicator-dot" />
-            <span>{isBackendOnline ? "Live Agent" : "Demo Mode"}</span>
+            Meetings
+          </button>
+          <button
+            type="button"
+            className="nav-tab-item"
+            onClick={() => {
+              setCurrentView("dashboard");
+              setTimeout(() => {
+                document.getElementById("groups-section")?.scrollIntoView({ behavior: "smooth" });
+              }, 100);
+            }}
+          >
+            Groups
+          </button>
+          <button
+            type="button"
+            className="nav-tab-item"
+            onClick={() => setNotification("Calendar synchronization connected to Google Calendar.")}
+          >
+            Calendar
+          </button>
+        </nav>
+
+        {/* Right Status Indicators & User Profile */}
+        <div className="nav-actions">
+          {/* Ask AI trigger */}
+          <button
+            className="nav-tab-item"
+            onClick={() => handleOpenAskAi()}
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+            title="Ask AI questions across meeting minutes & decisions"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+            <span>Ask AI</span>
+          </button>
+
+          {/* Live Agent Pill */}
+          <div className="live-agent-pill">
+            <span className="live-agent-dot" />
+            <span>Live Agent</span>
           </div>
 
+          {/* Theme Toggle Button (Light / Dark) */}
+          <button
+            type="button"
+            className="theme-toggle-btn"
+            onClick={handleToggleTheme}
+            title={theme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+            aria-label="Toggle light and dark mode"
+          >
+            {theme === "light" ? (
+              <Moon className="theme-toggle-icon moon-icon" />
+            ) : (
+              <Sun className="theme-toggle-icon sun-icon" />
+            )}
+          </button>
+
+          {/* Notification Bell */}
+          <button
+            type="button"
+            className="nav-icon-btn"
+            title="Notifications"
+            onClick={() => setNotification("All meeting agent services are operational.")}
+          >
+            <Bell className="w-4 h-4 text-slate-500" />
+          </button>
+
+          {/* User Profile Menu */}
           {user ? (
-            <div className="user-profile-menu">
-              <div className="user-badge">
-                <span className="user-avatar">
-                  {user.name ? user.name[0].toUpperCase() : "U"}
-                </span>
-                <span className="user-name-text">{user.name}</span>
+            <div className="nav-user-pill" onClick={handleLogout} title="Click to Sign Out">
+              <div className="user-avatar-circle">
+                {user.name ? user.name[0].toUpperCase() : "A"}
               </div>
-              <button className="nav-btn-ghost" onClick={handleLogout} title="Sign Out">
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Sign Out</span>
-              </button>
+              <span className="user-name-label">{user.name}</span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
             </div>
           ) : (
-            <div className="auth-buttons-group">
-              <button
-                className={`nav-btn-ghost ${currentView === "auth" && authMode === "login" ? "active" : ""}`}
-                onClick={() => {
-                  setAuthMode("login");
-                  setAuthError(null);
-                  setCurrentView("auth");
-                }}
-              >
-                Sign In
-              </button>
-              <button
-                className={`nav-btn-primary ${currentView === "auth" && authMode === "register" ? "active" : ""}`}
-                onClick={() => {
-                  setAuthMode("register");
-                  setAuthError(null);
-                  setCurrentView("auth");
-                }}
-              >
-                Get Started
-              </button>
+            <div className="nav-user-pill" onClick={handleDemoLogin} title="Demo User">
+              <div className="user-avatar-circle">A</div>
+              <span className="user-name-label">Alex Morgan</span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
             </div>
           )}
         </div>
@@ -698,7 +847,7 @@ function App() {
           <div className="auth-card-wrapper">
             <div className="auth-header-block">
               <div className="auth-logo-badge">
-                <Bot className="w-8 h-8 text-indigo-400" />
+                <Bot className="w-8 h-8 text-amber-400" />
               </div>
               <h2 className="auth-title">
                 Meet<span className="brand-accent">Minutes</span>
@@ -711,7 +860,7 @@ function App() {
               </p>
               <div className="auth-features-preview">
                 <span className="auth-feature-tag">
-                  <Zap className="w-3.5 h-3.5 text-indigo-400" /> Live Bot
+                  <Zap className="w-3.5 h-3.5 text-amber-400" /> Live Bot
                 </span>
                 <span className="auth-feature-tag">
                   <Users className="w-3.5 h-3.5 text-emerald-400" /> Attendance Audit
@@ -817,7 +966,7 @@ function App() {
                 onClick={handleDemoLogin}
                 disabled={authLoading}
               >
-                <Sparkles className="w-4 h-4 text-indigo-400" />
+                <Sparkles className="w-4 h-4 text-amber-400" />
                 <span>Instant Demo Login (One Click)</span>
               </button>
 
@@ -832,6 +981,18 @@ function App() {
             </div>
           </div>
         </div>
+      ) : currentView === "meeting-detail" && selectedMeeting ? (
+        <main className="dashboard-content">
+          <MeetingDetailPage
+            meeting={selectedMeeting}
+            onBack={() => setCurrentView("dashboard")}
+            onToggleActionItem={handleToggleActionItem}
+            onOpenAskAi={handleOpenAskAi}
+            initialTab={drawerInitialTab}
+            liveTranscript={liveTranscripts}
+            botStatus={status}
+          />
+        </main>
       ) : (
         <main className="dashboard-content">
           {/* ── Join Meeting Command Center ─────────────────── */}
@@ -839,7 +1000,7 @@ function App() {
             <div className="hero-header">
               <div className="hero-title-group">
                 <span className="hero-badge">
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                   Autonomous Agent
                 </span>
                 <h2 className="hero-heading">Join Google Meet Room</h2>
@@ -968,7 +1129,7 @@ function App() {
                 ) : (
                   <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                 )}
-                <Terminal className="w-3.5 h-3.5 text-indigo-400" />
+                <Terminal className="w-3.5 h-3.5 text-amber-400" />
                 <span>Agent System Logs ({logs.length} events)</span>
               </button>
               {logs.length > 0 && showLogsConsole && (
@@ -1015,17 +1176,26 @@ function App() {
             onSelectMeeting={handleSelectMeeting}
             onDeleteMeeting={handleDeleteMeeting}
             onRestoreDefaults={handleRestoreDefaults}
+            onOpenAskAi={handleOpenAskAi}
           />
         </main>
       )}
 
-      {/* ── Slide-out Attendance & Minutes Side Drawer ──── */}
-      <AttendanceDrawer
-        meeting={selectedMeeting}
-        isOpen={isDrawerOpen}
-        initialTab={drawerInitialTab}
-        onClose={() => setIsDrawerOpen(false)}
-        onToggleActionItem={handleToggleActionItem}
+      {/* ── Ask My Meetings AI RAG Modal ──────────────────── */}
+      <AskMeetingsModal
+        isOpen={isAskAiOpen}
+        onClose={() => setIsAskAiOpen(false)}
+        meetings={meetings}
+        token={token}
+        currentUser={user}
+        onSelectMeeting={(m) => {
+          setSelectedMeeting(m);
+          setDrawerInitialTab("minutes");
+          setCurrentView("meeting-detail");
+          setIsAskAiOpen(false);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+        initialMeetingId={askAiMeetingId}
       />
 
       {/* ── Auth Modal ──────────────────────────────────── */}

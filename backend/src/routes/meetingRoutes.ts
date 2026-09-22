@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { optionalAuth, AuthRequest } from "../middleware/auth.js";
-import { Meeting } from "../models/Meeting.js";
+import { Meeting, type ITranscriptEntry } from "../models/Meeting.js";
 import { fetchVapiCallTranscript, terminateVapiCall } from "../services/vapiService.js";
 import { generateMeetingSummary } from "../services/groqService.js";
 
@@ -41,6 +41,7 @@ let currentUserId: any = null;
 let currentUserName = "Meeting Host";
 let currentUserEmail = "host@meetminutes.ai";
 let recordedAttendees: any[] = [];
+let activeMeetingTranscripts: ITranscriptEntry[] = [];
 
 function broadcast(line: string): void {
   logs.push(line);
@@ -48,6 +49,127 @@ function broadcast(line: string): void {
   for (const res of sseClients) {
     res.write(`data: ${JSON.stringify(line)}\n\n`);
   }
+}
+
+function consolidateTranscripts(entries: ITranscriptEntry[]): ITranscriptEntry[] {
+  if (!entries || entries.length === 0) return [];
+
+  const consolidated: ITranscriptEntry[] = [];
+
+  for (const rawEntry of entries) {
+    const text = (rawEntry.text || "").trim();
+    if (!text) continue;
+
+    if (consolidated.length === 0) {
+      consolidated.push({ ...rawEntry, text });
+      continue;
+    }
+
+    const last = consolidated[consolidated.length - 1];
+    const isSameSpeaker =
+      last.speaker.toLowerCase().trim() === (rawEntry.speaker || "").toLowerCase().trim();
+
+    if (!isSameSpeaker) {
+      consolidated.push({ ...rawEntry, text });
+      continue;
+    }
+
+    const cleanLast = last.text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+    const cleanCurr = text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+
+    // 1. Progressive prefix extension (e.g. "u" -> "uh" -> "uh meet" -> "uh meeting agent")
+    if (cleanCurr.startsWith(cleanLast) || text.startsWith(last.text)) {
+      last.text = text;
+      last.timestamp = rawEntry.timestamp || last.timestamp;
+      continue;
+    }
+
+    // 2. Subsumed match (shorter or duplicate)
+    if (cleanLast.startsWith(cleanCurr) || last.text.startsWith(text) || cleanLast.includes(cleanCurr)) {
+      continue;
+    }
+
+    // 3. Word token overlap
+    const lastWords = last.text.split(/\s+/);
+    const currWords = text.split(/\s+/);
+    let overlapped = false;
+    for (let len = Math.min(5, lastWords.length, currWords.length); len >= 2; len--) {
+      const suffix = lastWords.slice(-len).join(" ").toLowerCase().replace(/[^a-z0-9\s]/g, "");
+      const prefix = currWords.slice(0, len).join(" ").toLowerCase().replace(/[^a-z0-9\s]/g, "");
+      if (suffix === prefix) {
+        last.text = `${lastWords.slice(0, -len).join(" ")} ${text}`.trim();
+        last.timestamp = rawEntry.timestamp || last.timestamp;
+        overlapped = true;
+        break;
+      }
+    }
+    if (overlapped) continue;
+
+    // 4. Consecutive speech from same speaker merged into one turn
+    const endsWithPunct = /[.!?]$/.test(last.text.trim());
+    const separator = endsWithPunct ? " " : ". ";
+    last.text = `${last.text.trim()}${separator}${text.trim()}`;
+    last.timestamp = rawEntry.timestamp || last.timestamp;
+  }
+
+  return consolidated;
+}
+
+function ingestAndBroadcastTranscript(
+  speaker: string,
+  role: "Host" | "Co-host" | "Speaker" | "Attendee" | "Assistant",
+  rawText: string,
+  avatarColor: string
+): void {
+  const speechText = rawText.trim();
+  if (!speechText) return;
+
+  const lastEntry = activeMeetingTranscripts.length > 0
+    ? activeMeetingTranscripts[activeMeetingTranscripts.length - 1]
+    : null;
+
+  const isSameSpeaker = lastEntry && lastEntry.speaker.toLowerCase().trim() === speaker.toLowerCase().trim();
+
+  if (isSameSpeaker && lastEntry) {
+    const cleanLast = lastEntry.text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+    const cleanCurr = speechText.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+
+    // 1. Progressive prefix extension (e.g. "U" -> "Uh," -> "Uh, Meet")
+    if (cleanCurr.startsWith(cleanLast) || speechText.startsWith(lastEntry.text)) {
+      lastEntry.text = speechText;
+      lastEntry.timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      broadcast(`[LIVE_TRANSCRIPT_UPDATE] ${JSON.stringify(lastEntry)}`);
+      return;
+    }
+
+    // 2. Subsumed match
+    if (cleanLast.startsWith(cleanCurr) || lastEntry.text.startsWith(speechText) || cleanLast.includes(cleanCurr)) {
+      return;
+    }
+
+    // 3. Consecutive speech from same speaker: Combine into single cohesive turn!
+    const endsWithPunct = /[.!?]$/.test(lastEntry.text.trim());
+    const separator = endsWithPunct ? " " : ". ";
+    lastEntry.text = `${lastEntry.text.trim()}${separator}${speechText.trim()}`;
+    lastEntry.timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    broadcast(`[LIVE_TRANSCRIPT_UPDATE] ${JSON.stringify(lastEntry)}`);
+    return;
+  }
+
+  const newEntry: ITranscriptEntry = {
+    id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    speaker,
+    role,
+    text: speechText,
+    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+    avatarColor,
+  };
+
+  activeMeetingTranscripts.push(newEntry);
+  if (activeMeetingTranscripts.length > 1000) {
+    activeMeetingTranscripts = activeMeetingTranscripts.slice(-800);
+  }
+  broadcast(`[LIVE_TRANSCRIPT] ${JSON.stringify(newEntry)}`);
 }
 
 function extractMeetingId(url: string): string {
@@ -112,9 +234,10 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
   const fallbackTranscripts: string[] = [];
   for (const line of logs) {
     if (
-      line.includes("[VapiBridge] Voice transcribed") ||
-      line.includes("[VapiBridge] User voice transcribed") ||
-      line.includes("[VapiBridge] Assistant voice transcribed")
+      (line.includes("[VapiBridge] Voice transcribed") ||
+        line.includes("[VapiBridge] User voice transcribed") ||
+        line.includes("[VapiBridge] Assistant voice transcribed")) &&
+      !line.includes("[partial]")
     ) {
       fallbackTranscripts.push(line.replace(/^\[.*?\]\s*/, ""));
     }
@@ -249,6 +372,26 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
   }
 
   try {
+    const finalTranscripts: ITranscriptEntry[] = consolidateTranscripts(activeMeetingTranscripts);
+    if (finalTranscripts.length === 0 && vapiMessages && vapiMessages.length > 0) {
+      for (let i = 0; i < vapiMessages.length; i++) {
+        const vm = vapiMessages[i];
+        const roleStr = (vm.role || "user").toLowerCase();
+        const isBot = roleStr.includes("assistant") || roleStr.includes("bot");
+        const txt = vm.message || vm.content || vm.text || "";
+        if (txt && typeof txt === "string") {
+          finalTranscripts.push({
+            id: `tr-vapi-${i}-${Date.now()}`,
+            speaker: isBot ? "MeetMinutes AI Agent" : (attendeeNamesList[0] || "Participant"),
+            role: isBot ? "Assistant" : "Speaker",
+            text: txt,
+            timestamp: new Date(startTime + i * 15000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            avatarColor: isBot ? "#10b981" : "#2563eb",
+          });
+        }
+      }
+    }
+
     const updateData: Record<string, any> = {
       meetingId,
       title: `Google Meet Session (${meetingId})`,
@@ -258,6 +401,7 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
       durationSeconds,
       attendees,
       minutes,
+      transcript: finalTranscripts,
       rawLogs: logs.slice(-300),
     };
 
@@ -272,7 +416,7 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
     );
 
     broadcast(`[dashboard] 💾 Meeting ${meetingId} successfully recorded in MongoDB Atlas!`);
-    console.log(`✅ [MongoDB] Meeting ${meetingId} saved to database.`);
+    console.log(`✅ [MongoDB] Meeting ${meetingId} saved to database with ${finalTranscripts.length} transcript lines.`);
   } catch (err: any) {
     console.error(`❌ [MongoDB] Error saving meeting ${meetingId}:`, err);
     broadcast(`[dashboard] Error saving meeting to database: ${err.message}`);
@@ -284,6 +428,7 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
     currentVapiCallId = null;
     currentUserId = null;
     recordedAttendees = [];
+    activeMeetingTranscripts = [];
     logs = [];
     isSavingMeeting = false;
   }
@@ -408,6 +553,66 @@ router.post("/join", optionalAuth, async (req: AuthRequest, res: Response): Prom
           console.warn("[dashboard] Could not parse ATTENDANCE_DATA JSON:", err.message);
         }
       }
+
+      // Filter out partial/interim transcripts to prevent fragmented word-by-word cards
+      const isPartial = text.includes("[partial]") || text.includes("interim");
+
+      // Detect Live Transcript lines emitted during the meeting
+      const userSpeechMatch = text.match(/\[VapiBridge\]\s*User voice transcribed(?:\s*\[(final|partial)\])?:\s*"([^"]+)"/i);
+      if (userSpeechMatch && userSpeechMatch[2]) {
+        const lineIsPartial = isPartial || userSpeechMatch[1] === "partial";
+        if (!lineIsPartial) {
+          ingestAndBroadcastTranscript(
+            currentUserName || "Participant",
+            "Speaker",
+            userSpeechMatch[2],
+            "#2563eb"
+          );
+        }
+      }
+
+      const botSpeechMatch = text.match(/\[VapiBridge\]\s*Assistant voice transcribed(?:\s*\[(final|partial)\])?:\s*"([^"]+)"/i);
+      if (botSpeechMatch && botSpeechMatch[2]) {
+        const lineIsPartial = isPartial || botSpeechMatch[1] === "partial";
+        if (!lineIsPartial) {
+          ingestAndBroadcastTranscript(
+            "MeetMinutes AI Agent",
+            "Assistant",
+            botSpeechMatch[2],
+            "#10b981"
+          );
+        }
+      }
+
+      const roleSpeechMatch = text.match(/\[VapiBridge\]\s*Voice transcribed\s*\[([^\]]+)\](?:\s*\[(final|partial)\])?:\s*"([^"]+)"/i);
+      if (roleSpeechMatch && roleSpeechMatch[1] && roleSpeechMatch[3]) {
+        const lineIsPartial = isPartial || roleSpeechMatch[2] === "partial";
+        if (!lineIsPartial) {
+          const speechRole = roleSpeechMatch[1].toLowerCase();
+          const isBot = speechRole.includes("assistant") || speechRole.includes("bot");
+          ingestAndBroadcastTranscript(
+            isBot ? "MeetMinutes AI Agent" : (currentUserName || "Participant"),
+            isBot ? "Assistant" : "Speaker",
+            roleSpeechMatch[3],
+            isBot ? "#10b981" : "#2563eb"
+          );
+        }
+      }
+
+      const convMatch = text.match(/\[VapiBridge\]\s*Conversation update:\s*\[([^\]]+)\]\s*(.+)/i);
+      if (convMatch && convMatch[1] && convMatch[2]) {
+        const speechRole = convMatch[1].toLowerCase();
+        const isBot = speechRole.includes("assistant") || speechRole.includes("bot");
+        const speechText = convMatch[2].trim();
+        if (speechText && !speechText.startsWith("{")) {
+          ingestAndBroadcastTranscript(
+            isBot ? "MeetMinutes AI Agent" : (currentUserName || "Participant"),
+            isBot ? "Assistant" : "Speaker",
+            speechText,
+            isBot ? "#10b981" : "#2563eb"
+          );
+        }
+      }
     }
   });
 
@@ -519,6 +724,30 @@ router.get("/logs", (_req, res: Response): void => {
 
   sseClients.add(res);
   _req.on("close", () => sseClients.delete(res));
+});
+
+/* ── GET /api/live-transcript ────────────────────────────── */
+router.get("/live-transcript", (_req, res: Response): void => {
+  res.json({
+    inProgress: status === "running" || status === "joining",
+    meetingId: currentMeetingId,
+    transcript: activeMeetingTranscripts,
+  });
+});
+
+/* ── GET /api/meetings/:id/transcript ─────────────────────── */
+router.get("/meetings/:id/transcript", async (req, res: Response): Promise<void> => {
+  const { id } = req.params;
+  try {
+    const meeting = await Meeting.findOne({ meetingId: id });
+    if (!meeting) {
+      res.status(404).json({ error: "Meeting not found" });
+      return;
+    }
+    res.json({ transcript: meeting.transcript || [] });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

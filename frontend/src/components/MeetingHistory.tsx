@@ -23,6 +23,7 @@ interface MeetingHistoryProps {
   onSelectMeeting: (meeting: MeetingRecord, initialTab?: "attendance" | "minutes") => void;
   onDeleteMeeting: (meetingId: string) => void;
   onRestoreDefaults: () => void;
+  onOpenAskAi?: (meetingId?: string) => void;
 }
 
 export function MeetingHistory({
@@ -30,6 +31,7 @@ export function MeetingHistory({
   onSelectMeeting,
   onDeleteMeeting,
   onRestoreDefaults,
+  onOpenAskAi,
 }: MeetingHistoryProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -96,6 +98,16 @@ export function MeetingHistory({
               </button>
             )}
           </div>
+
+          <button
+            className="btn-ask-ai-history"
+            onClick={() => onOpenAskAi?.()}
+            type="button"
+            title="Ask AI questions across all recorded meetings"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+            <span>Ask AI</span>
+          </button>
 
           {meetings.length === 0 && (
             <button className="btn-restore-samples" onClick={onRestoreDefaults} type="button">
@@ -214,7 +226,7 @@ export function MeetingHistory({
                   >
                     <div className="summary-preview-header">
                       <span className="summary-preview-badge">
-                        <Sparkles className="w-3 h-3 text-indigo-400" />
+                        <Sparkles className="w-3 h-3 text-blue-600" />
                         AI Summary
                       </span>
                       <span className="summary-preview-expand">
@@ -283,6 +295,19 @@ export function MeetingHistory({
                   >
                     <Users className="w-3.5 h-3.5" />
                     <span>Attendance</span>
+                  </button>
+
+                  <button
+                    className="card-btn card-btn-ask"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenAskAi?.(meeting.id);
+                    }}
+                    type="button"
+                    title={`Ask AI questions about ${meeting.title}`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Ask AI</span>
                   </button>
 
                   <button

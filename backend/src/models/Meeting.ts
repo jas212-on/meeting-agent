@@ -44,6 +44,15 @@ export interface IMeetingMinutes {
   discussionTopics: IDiscussionTopic[];
 }
 
+export interface ITranscriptEntry {
+  id: string;
+  speaker: string;
+  role: "Host" | "Co-host" | "Speaker" | "Attendee" | "Assistant";
+  text: string;
+  timestamp: string;
+  avatarColor?: string;
+}
+
 export interface IMeeting extends Document {
   meetingId: string;
   user?: Types.ObjectId;
@@ -57,6 +66,7 @@ export interface IMeeting extends Document {
   status: "completed" | "in-progress" | "scheduled";
   attendees: IAttendee[];
   minutes: IMeetingMinutes;
+  transcript?: ITranscriptEntry[];
   rawLogs?: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -129,6 +139,22 @@ const MeetingMinutesSchema = new Schema<IMeetingMinutes>(
   { _id: false }
 );
 
+const TranscriptEntrySchema = new Schema<ITranscriptEntry>(
+  {
+    id: { type: String, required: true },
+    speaker: { type: String, required: true, trim: true },
+    role: {
+      type: String,
+      enum: ["Host", "Co-host", "Speaker", "Attendee", "Assistant"],
+      default: "Speaker",
+    },
+    text: { type: String, required: true, trim: true },
+    timestamp: { type: String, default: "" },
+    avatarColor: { type: String, default: "#2563eb" },
+  },
+  { _id: false }
+);
+
 const MeetingSchema = new Schema<IMeeting>(
   {
     meetingId: {
@@ -196,6 +222,10 @@ const MeetingSchema = new Schema<IMeeting>(
         actionItems: [],
         discussionTopics: [],
       }),
+    },
+    transcript: {
+      type: [TranscriptEntrySchema],
+      default: [],
     },
     rawLogs: {
       type: [String],

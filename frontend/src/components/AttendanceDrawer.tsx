@@ -402,7 +402,7 @@ export function AttendanceDrawer({
               {/* Executive Summary */}
               <div className="minutes-block summary-block">
                 <h3 className="block-title">
-                  <Sparkles className="block-icon-svg text-indigo-400" />
+                  <Sparkles className="block-icon-svg text-amber-400" />
                   <span>Executive Summary</span>
                 </h3>
                 <p className="summary-text">{meeting.minutes.summary}</p>

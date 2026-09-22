@@ -225,16 +225,18 @@ export class VapiBridge {
         }
       } else if (msg.type === "transcript") {
         const role = msg.role ?? "user";
-        const transcript = msg.transcript ?? "";
-        const transcriptType = msg.transcriptType || (msg.type === "transcript" ? "final/interim" : "");
+        const transcript = (msg.transcript ?? "").trim();
+        const transcriptType = msg.transcriptType || (msg.type === "transcript" ? "final" : "");
+        const isPartial = transcriptType === "partial";
+        const tag = isPartial ? "partial" : "final";
         if (role === "user") {
-          console.log(`[VapiBridge] User voice transcribed: "${transcript}" [${transcriptType}]`);
+          console.log(`[VapiBridge] User voice transcribed [${tag}]: "${transcript}"`);
         } else if (role === "assistant") {
-          console.log(`[VapiBridge] Assistant voice transcribed: "${transcript}"`);
+          console.log(`[VapiBridge] Assistant voice transcribed [${tag}]: "${transcript}"`);
         } else {
-          console.log(`[VapiBridge] Voice transcribed [${role}]: "${transcript}"`);
+          console.log(`[VapiBridge] Voice transcribed [${role}] [${tag}]: "${transcript}"`);
         }
-        if (transcript && transcriptType !== "partial") {
+        if (transcript && !isPartial) {
           this.addTranscriptEntry(role, transcript);
         }
       } else if (msg.type === "conversation-update") {

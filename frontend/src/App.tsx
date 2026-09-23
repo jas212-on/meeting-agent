@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type FormEvent } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { MeetingRecord, TranscriptEntry } from "./types";
 import { INITIAL_MEETINGS, createNewMeetingRecord, formatDuration } from "./utils/mockData";
 import { consolidateTranscripts } from "./utils/transcriptUtils";
@@ -6,6 +6,7 @@ import { MeetingHistory } from "./components/MeetingHistory";
 import { GroupSection } from "./components/GroupSection";
 import { AskMeetingsModal } from "./components/AskMeetingsModal";
 import { MeetingDetailPage } from "./components/MeetingDetailPage";
+import { GoogleSignInButton } from "./components/GoogleSignInButton";
 import {
   Sparkles,
   Zap,
@@ -36,6 +37,7 @@ interface UserProfile {
   id: string;
   name: string;
   email: string;
+  avatar?: string;
 }
 
 const MEET_RE = /^https:\/\/meet\.google\.com\/[\w-]+(\/|\?|#|$)/i;
@@ -128,10 +130,6 @@ function App() {
     return localStorage.getItem("auth_token") ? "dashboard" : "auth";
   });
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [authName, setAuthName] = useState("");
-  const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -597,29 +595,22 @@ function App() {
     }
   };
 
-  /* ── Handle Auth Form Submit ──────────────────────────────── */
-  const handleAuthSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setAuthError(null);
+  /* ── Handle Google Sign-In Success ──────────────────────────── */
+  const handleGoogleSuccess = async (credential: string) => {
     setAuthLoading(true);
-
-    const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
-    const payload =
-      authMode === "login"
-        ? { email: authEmail, password: authPassword }
-        : { name: authName, email: authEmail, password: authPassword };
+    setAuthError(null);
 
     try {
-      const res = await apiFetch(endpoint, {
+      const res = await apiFetch("/api/auth/google", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ credential }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setAuthError(data.error || "Authentication failed. Please check your inputs.");
+        setAuthError(data.error || "Google authentication failed. Please try again.");
         setAuthLoading(false);
         return;
       }
@@ -629,66 +620,21 @@ function App() {
       setUser(data.user);
       setShowAuthModal(false);
       setCurrentView("dashboard");
-      setAuthPassword("");
       setAuthError(null);
-      setNotification(`Welcome back, ${data.user.name || "User"}!`);
-    } catch {
-      // When offline, simulate mock user for testing
-      const mockUser = {
-        id: "usr-" + Date.now(),
-        name: authName || (authMode === "login" ? "Jane Doe" : "New User"),
-        email: authEmail || "user@example.com",
-      };
-      localStorage.setItem("auth_token", "demo-token-" + Date.now());
-      setToken("demo-token");
-      setUser(mockUser);
-      setShowAuthModal(false);
-      setCurrentView("dashboard");
-      setAuthPassword("");
-      setAuthError(null);
-      setNotification(`Signed in as ${mockUser.name} (Interactive session)`);
+      setNotification(`Welcome, ${data.user.name || "User"}!`);
+    } catch (err: any) {
+      console.error("Google auth request error:", err);
+      setAuthError("Failed to connect to authentication server. Please check your network.");
     } finally {
       setAuthLoading(false);
     }
   };
 
-  /* ── Quick One-Click Demo Login ───────────────────────────── */
-  const handleDemoLogin = async () => {
-    setAuthLoading(true);
-    setAuthError(null);
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "alex@meetminutes.ai", password: "demopassword123" }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        localStorage.setItem("auth_token", data.token);
-        setToken(data.token);
-        setUser(data.user);
-        setCurrentView("dashboard");
-        setShowAuthModal(false);
-        setNotification(`Welcome back, ${data.user.name}!`);
-        setAuthLoading(false);
-        return;
-      }
-    } catch {
-      // offline fallback
-    }
-
-    const demoUser: UserProfile = {
-      id: "usr-demo",
-      name: "Alex Morgan",
-      email: "alex@meetminutes.ai",
-    };
-    localStorage.setItem("auth_token", "demo-token-alex");
-    setToken("demo-token-alex");
-    setUser(demoUser);
-    setCurrentView("dashboard");
+  /* ── Continue As Guest ─────────────────────────────────────── */
+  const handleContinueAsGuest = () => {
     setShowAuthModal(false);
-    setNotification("Signed in as Alex Morgan (Demo Account)");
-    setAuthLoading(false);
+    setCurrentView("dashboard");
+    setNotification("Continuing as Guest. You can sign in with Google anytime.");
   };
 
   const handleLogout = () => {
@@ -825,16 +771,26 @@ function App() {
           {/* User Profile Menu */}
           {user ? (
             <div className="nav-user-pill" onClick={handleLogout} title="Click to Sign Out">
-              <div className="user-avatar-circle">
-                {user.name ? user.name[0].toUpperCase() : "A"}
+              <div className="user-avatar-circle overflow-hidden flex items-center justify-center">
+                {user.avatar ? (
+                  <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+                ) : user.name ? (
+                  user.name[0].toUpperCase()
+                ) : (
+                  "G"
+                )}
               </div>
               <span className="user-name-label">{user.name}</span>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
             </div>
           ) : (
-            <div className="nav-user-pill" onClick={handleDemoLogin} title="Demo User">
-              <div className="user-avatar-circle">A</div>
-              <span className="user-name-label">Alex Morgan</span>
+            <div
+              className="nav-user-pill"
+              onClick={() => setShowAuthModal(true)}
+              title="Click to Sign In with Google"
+            >
+              <div className="user-avatar-circle">G</div>
+              <span className="user-name-label">Guest</span>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
             </div>
           )}
@@ -854,9 +810,7 @@ function App() {
                 <span className="brand-tld">.ai</span>
               </h2>
               <p className="auth-subtitle">
-                {authMode === "login"
-                  ? "Sign in to deploy automated meeting bots, audit attendance, and access AI minutes."
-                  : "Create an account to start deploying automated meeting bots for your team."}
+                Sign in with Google to deploy automated meeting bots, audit attendance, and access AI minutes.
               </p>
               <div className="auth-features-preview">
                 <span className="auth-feature-tag">
@@ -871,30 +825,7 @@ function App() {
               </div>
             </div>
 
-            <div className="modal-tabs">
-              <button
-                type="button"
-                className={`modal-tab ${authMode === "login" ? "active" : ""}`}
-                onClick={() => {
-                  setAuthMode("login");
-                  setAuthError(null);
-                }}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                className={`modal-tab ${authMode === "register" ? "active" : ""}`}
-                onClick={() => {
-                  setAuthMode("register");
-                  setAuthError(null);
-                }}
-              >
-                Create Account
-              </button>
-            </div>
-
-            <form className="modal-form" onSubmit={handleAuthSubmit}>
+            <div className="p-6 flex flex-col gap-4">
               {authError && (
                 <div className="form-error">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -902,78 +833,21 @@ function App() {
                 </div>
               )}
 
-              {authMode === "register" && (
-                <div className="form-group">
-                  <label className="form-label" htmlFor="page-auth-name">
-                    Full Name
-                  </label>
-                  <input
-                    id="page-auth-name"
-                    type="text"
-                    required
-                    className="form-input"
-                    placeholder="e.g. Alex Morgan"
-                    value={authName}
-                    onChange={(e) => setAuthName(e.target.value)}
-                  />
-                </div>
-              )}
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="page-auth-email">
-                  Email Address
-                </label>
-                <input
-                  id="page-auth-email"
-                  type="email"
-                  required
-                  className="form-input"
-                  placeholder="name@company.com"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="page-auth-password">
-                  Password
-                </label>
-                <input
-                  id="page-auth-password"
-                  type="password"
-                  required
-                  minLength={6}
-                  className="form-input"
-                  placeholder="Minimum 6 characters"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                />
-              </div>
-
-              <button type="submit" className="form-submit-btn" disabled={authLoading}>
-                {authLoading
-                  ? "Authenticating…"
-                  : authMode === "login"
-                  ? "Sign In to Dashboard"
-                  : "Create Free Account"}
-              </button>
-            </form>
-
-            <div className="auth-quick-actions">
-              <button
-                type="button"
-                className="demo-login-btn"
-                onClick={handleDemoLogin}
+              <GoogleSignInButton
+                text="continue_with"
+                onSuccess={handleGoogleSuccess}
+                onError={(err) => setAuthError(err)}
                 disabled={authLoading}
-              >
-                <Sparkles className="w-4 h-4 text-amber-400" />
-                <span>Instant Demo Login (One Click)</span>
-              </button>
+              />
+
+              <div className="auth-divider">
+                <span>or</span>
+              </div>
 
               <button
                 type="button"
                 className="guest-continue-btn"
-                onClick={() => setCurrentView("dashboard")}
+                onClick={handleContinueAsGuest}
               >
                 <span>Continue as Guest</span>
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -1165,8 +1039,7 @@ function App() {
             botStatus={status}
             onJoinMeeting={(meetUrl) => handleJoin(meetUrl)}
             onOpenAuthModal={() => {
-              setAuthMode("login");
-              setCurrentView("auth");
+              setShowAuthModal(true);
             }}
           />
 
@@ -1210,28 +1083,19 @@ function App() {
               <X className="w-4 h-4" />
             </button>
 
-            <div className="modal-tabs">
-              <button
-                className={`modal-tab ${authMode === "login" ? "active" : ""}`}
-                onClick={() => {
-                  setAuthMode("login");
-                  setAuthError(null);
-                }}
-              >
-                Sign In
-              </button>
-              <button
-                className={`modal-tab ${authMode === "register" ? "active" : ""}`}
-                onClick={() => {
-                  setAuthMode("register");
-                  setAuthError(null);
-                }}
-              >
-                Create Account
-              </button>
+            <div className="auth-header-block pt-6 px-6 pb-2 text-center">
+              <div className="auth-logo-badge mx-auto mb-3">
+                <Bot className="w-7 h-7 text-amber-400" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-100">
+                Sign in to MeetMinutes.ai
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Access your meetings, collaboration groups, and team intelligence
+              </p>
             </div>
 
-            <form className="modal-form" onSubmit={handleAuthSubmit}>
+            <div className="p-6 flex flex-col gap-4">
               {authError && (
                 <div className="form-error">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -1239,62 +1103,26 @@ function App() {
                 </div>
               )}
 
-              {authMode === "register" && (
-                <div className="form-group">
-                  <label className="form-label" htmlFor="auth-name">
-                    Full Name
-                  </label>
-                  <input
-                    id="auth-name"
-                    type="text"
-                    required
-                    className="form-input"
-                    placeholder="e.g. Jane Doe"
-                    value={authName}
-                    onChange={(e) => setAuthName(e.target.value)}
-                  />
-                </div>
-              )}
+              <GoogleSignInButton
+                text="continue_with"
+                onSuccess={handleGoogleSuccess}
+                onError={(err) => setAuthError(err)}
+                disabled={authLoading}
+              />
 
-              <div className="form-group">
-                <label className="form-label" htmlFor="auth-email">
-                  Email Address
-                </label>
-                <input
-                  id="auth-email"
-                  type="email"
-                  required
-                  className="form-input"
-                  placeholder="name@example.com"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                />
+              <div className="auth-divider">
+                <span>or</span>
               </div>
 
-              <div className="form-group">
-                <label className="form-label" htmlFor="auth-password">
-                  Password
-                </label>
-                <input
-                  id="auth-password"
-                  type="password"
-                  required
-                  minLength={6}
-                  className="form-input"
-                  placeholder="At least 6 characters"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                />
-              </div>
-
-              <button type="submit" className="form-submit-btn" disabled={authLoading}>
-                {authLoading
-                  ? "Authenticating…"
-                  : authMode === "login"
-                  ? "Sign In"
-                  : "Create Account"}
+              <button
+                type="button"
+                className="guest-continue-btn"
+                onClick={handleContinueAsGuest}
+              >
+                <span>Continue as Guest</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
-            </form>
+            </div>
           </div>
         </div>
       )}

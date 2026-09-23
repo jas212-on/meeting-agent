@@ -1,7 +1,10 @@
 import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 import { User } from "../models/User.js";
 import { AuthRequest } from "../middleware/auth.js";
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 function generateToken(id: string, email: string): string {
   const secret = process.env.JWT_SECRET || "default_jwt_secret_fallback";
@@ -67,6 +70,7 @@ export async function register(req: Request, res: Response): Promise<void> {
         id: user._id,
         name: user.name,
         email: user.email,
+        avatar: user.avatar,
         createdAt: user.createdAt,
       },
     });
@@ -122,6 +126,7 @@ export async function login(req: Request, res: Response): Promise<void> {
         id: user._id,
         name: user.name,
         email: user.email,
+        avatar: user.avatar,
         createdAt: user.createdAt,
       },
     });
@@ -151,6 +156,7 @@ export async function getMe(req: AuthRequest, res: Response): Promise<void> {
         id: req.user._id,
         name: req.user.name,
         email: req.user.email,
+        avatar: req.user.avatar,
         createdAt: req.user.createdAt,
       },
     });
@@ -219,5 +225,98 @@ export async function getUsers(req: AuthRequest, res: Response): Promise<void> {
     });
   }
 }
+
+// POST /api/auth/google
+export async function googleLogin(req: Request, res: Response): Promise<void> {
+  try {
+    const { credential } = req.body;
+
+    if (!credential) {
+      res.status(400).json({
+        success: false,
+        error: "Missing Google credential token.",
+      });
+      return;
+    }
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      res.status(500).json({
+        success: false,
+        error: "Server Google Client ID is not configured.",
+      });
+      return;
+    }
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: clientId,
+    });
+
+    const payload = ticket.getPayload();
+    if (!payload || !payload.email) {
+      res.status(400).json({
+        success: false,
+        error: "Invalid Google token payload.",
+      });
+      return;
+    }
+
+    const email = payload.email.toLowerCase().trim();
+    const googleId = payload.sub;
+    const name = payload.name?.trim() || email.split("@")[0];
+    const avatar = payload.picture;
+
+    // Find user by googleId or email
+    let user = await User.findOne({
+      $or: [{ googleId }, { email }],
+    });
+
+    if (user) {
+      let needsSave = false;
+      if (!user.googleId) {
+        user.googleId = googleId;
+        needsSave = true;
+      }
+      if (avatar && !user.avatar) {
+        user.avatar = avatar;
+        needsSave = true;
+      }
+      if (needsSave) {
+        await user.save();
+      }
+    } else {
+      user = await User.create({
+        name,
+        email,
+        googleId,
+        avatar,
+        authProvider: "google",
+      });
+    }
+
+    const token = generateToken(user._id.toString(), user.email);
+
+    res.status(200).json({
+      success: true,
+      message: "Google login successful.",
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (error: any) {
+    console.error("Google login error:", error);
+    res.status(401).json({
+      success: false,
+      error: "Google authentication failed. Please verify your credentials and try again.",
+    });
+  }
+}
+
 
 

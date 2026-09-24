@@ -9,8 +9,16 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'https://datebook-tribunal-smite.ngrok-free.dev',
         changeOrigin: true,
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
+        },
+      },
+      '/control': {
+        target: 'http://127.0.0.1:4712',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/control/, ''),
       },
     },
   },

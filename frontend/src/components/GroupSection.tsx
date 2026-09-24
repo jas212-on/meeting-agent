@@ -75,10 +75,12 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
   }, [token]);
 
   /* ── Fetch groups from backend ───────────────────────────── */
-  const fetchGroups = useCallback(async () => {
+  const fetchGroups = useCallback(async (isSilent = false) => {
     if (!token) return;
     try {
-      setLoading(true);
+      if (!isSilent) {
+        setLoading(true);
+      }
       const res = await fetch("/api/groups", {
         headers: getHeaders(),
       });
@@ -98,14 +100,18 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
     } catch (err) {
       console.warn("Could not fetch groups:", err);
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, [token, getHeaders]);
 
-  // Initial fetch and auto-refresh every 8 seconds so participants get live meet links
+  // Initial fetch (visible loader if empty) and auto-refresh every 8s silently
   useEffect(() => {
-    fetchGroups();
-    const interval = setInterval(fetchGroups, 8000);
+    fetchGroups(false);
+    const interval = setInterval(() => {
+      fetchGroups(true);
+    }, 8000);
     return () => clearInterval(interval);
   }, [fetchGroups]);
 

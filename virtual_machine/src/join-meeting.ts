@@ -1,14 +1,20 @@
 import { chromium, type BrowserContext, type Page } from "playwright";
 import path from "node:path";
-import { existsSync } from "node:fs";
+import fs, { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import readline from "node:readline";
 import type http from "node:http";
+import { fileURLToPath } from "node:url";
+import ffmpegPath from "ffmpeg-static";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { parseConfig } from "./config.js";
 import {
   selectors,
   joinButtonSelectors,
   askToJoinButtonSelectors,
   callEndedSelectors,
+  aloneSelectors,
 } from "./selectors.js";
 import { setMic, setCameraOff, leaveMeeting, dismissPopups } from "./meet-control.js";
 import {
@@ -29,7 +35,7 @@ const log = (...msg: unknown[]): void =>
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-async function launchContext(profileDir: string): Promise<BrowserContext> {
+async function launchContext(profileDir: string, recordingsDir: string): Promise<BrowserContext> {
   const absolute = path.resolve(profileDir);
   log(`[Step 3] Launching Chrome with persistent profile: ${absolute}`);
   try {
@@ -37,13 +43,19 @@ async function launchContext(profileDir: string): Promise<BrowserContext> {
       channel: "chrome",
       headless: false,
       viewport: null,
+      recordVideo: {
+        dir: recordingsDir,
+        size: { width: 1280, height: 720 },
+      },
       permissions: ["camera", "microphone"],
       ignoreDefaultArgs: ["--enable-automation"],
       args: [
         "--disable-blink-features=AutomationControlled",
         "--no-first-run",
         "--no-default-browser-check",
+        "--disable-background-mode",
         "--autoplay-policy=no-user-gesture-required",
+        "--enable-usermedia-screen-capturing",
       ],
     });
     log("[Step 3] Chrome browser launched successfully.");
@@ -184,18 +196,25 @@ async function waitForAdmission(page: Page, timeoutMs: number): Promise<void> {
   throw new Error("Not admitted to the meeting within the timeout.");
 }
 
-function startCallMonitor(page: Page, onCallEnded: () => void): () => void {
+function startCallMonitor(
+  page: Page,
+  onCallEnded: () => void,
+  getHumanCount?: () => number
+): () => void {
   let active = true;
   let timer: NodeJS.Timeout | null = null;
   let aloneTicks = 0;
+  const startedAt = Date.now();
 
   const check = async () => {
     if (!active || page.isClosed()) return;
     try {
       const url = page.url();
-      // Google Meet redirects to /landing or root domain after leaving
+      // Google Meet redirects to /landing, /post-call, _meet/, or root domain after leaving
       if (
         url.includes("/landing") ||
+        url.includes("/post-call") ||
+        url.includes("/_meet/") ||
         url === "https://meet.google.com/" ||
         url === "https://meet.google.com" ||
         url.startsWith("https://meet.google.com/?")
@@ -212,7 +231,7 @@ function startCallMonitor(page: Page, onCallEnded: () => void): () => void {
         const isEnded = await page
           .locator(sel)
           .first()
-          .isVisible({ timeout: 200 })
+          .isVisible({ timeout: 120 })
           .catch(() => false);
         if (isEnded) {
           log(`[CallMonitor] Detected meeting exit screen (found "${sel}"). Ending session...`);
@@ -223,16 +242,45 @@ function startCallMonitor(page: Page, onCallEnded: () => void): () => void {
         }
       }
 
-      // Check if bot is left completely alone in the room
-      const isAlone = await page
-        .locator(selectors.ALONE)
-        .first()
-        .isVisible({ timeout: 200 })
-        .catch(() => false);
+      // Check for alone / everyone else left indicators
+      let isAlone = false;
+      for (const sel of aloneSelectors) {
+        if (await page.locator(sel).first().isVisible({ timeout: 120 }).catch(() => false)) {
+          isAlone = true;
+          break;
+        }
+      }
+
+      // Check participant count in people button (e.g. "(1)" or "1 person" or text "1")
+      if (!isAlone) {
+        const peopleBtn = page
+          .locator('button[data-panel-id="1"], button[aria-label*="Show everyone" i], button[aria-label*="People" i]')
+          .first();
+        if (await peopleBtn.isVisible({ timeout: 120 }).catch(() => false)) {
+          const ariaLabel = (await peopleBtn.getAttribute("aria-label").catch(() => "")) || "";
+          const textContent = (await peopleBtn.innerText().catch(() => "")).trim();
+          if (
+            /\b1\s*(person|participant)?\b/i.test(ariaLabel) ||
+            ariaLabel.includes("(1)") ||
+            textContent === "1"
+          ) {
+            isAlone = true;
+          }
+        }
+      }
+
+      // Check attendance tracker active human count
+      if (!isAlone && getHumanCount) {
+        const count = getHumanCount();
+        if (count === 0 && Date.now() - startedAt > 10000) {
+          isAlone = true;
+        }
+      }
+
       if (isAlone) {
         aloneTicks++;
-        if (aloneTicks >= 3) {
-          log("[CallMonitor] Detected 'You are the only one here'. All other participants left. Ending session...");
+        if (aloneTicks >= 2) {
+          log("[CallMonitor] Detected that all other participants have left the meeting. Ending session...");
           active = false;
           if (timer) clearInterval(timer);
           onCallEnded();
@@ -246,16 +294,15 @@ function startCallMonitor(page: Page, onCallEnded: () => void): () => void {
       const inCall = await page
         .locator(selectors.IN_CALL)
         .first()
-        .isVisible({ timeout: 200 })
+        .isVisible({ timeout: 120 })
         .catch(() => false);
       if (!inCall) {
-        // Double-check after 2 seconds to avoid transient UI flashes
-        await sleep(2000);
+        await sleep(1500);
         if (!active || page.isClosed()) return;
         const stillInCall = await page
           .locator(selectors.IN_CALL)
           .first()
-          .isVisible({ timeout: 300 })
+          .isVisible({ timeout: 200 })
           .catch(() => false);
         if (!stillInCall) {
           log("[CallMonitor] In-call controls no longer visible. Ending session...");
@@ -272,7 +319,7 @@ function startCallMonitor(page: Page, onCallEnded: () => void): () => void {
 
   timer = setInterval(() => {
     void check();
-  }, 2000);
+  }, 1500);
 
   return () => {
     active = false;
@@ -291,6 +338,21 @@ async function main(): Promise<void> {
   log(`[Step 1] Target Meeting: ${config.meetUrl}`);
   log(`[Step 1] Vapi Integration: ${vapiEnabled ? "ENABLED" : "DISABLED"}`);
 
+  const meetIdMatch = config.meetUrl.match(/meet\.google\.com\/([a-zA-Z0-9_-]+)/i);
+  const currentMeetingCode = meetIdMatch && meetIdMatch[1] ? meetIdMatch[1].replace(/[^a-zA-Z0-9-]/g, "") : `meet-${Date.now()}`;
+  const recordingsDir = path.resolve(process.cwd(), "recordings");
+  if (!fs.existsSync(recordingsDir)) {
+    fs.mkdirSync(recordingsDir, { recursive: true });
+  }
+
+  let isScreenRecording = false;
+  let screenRecordingRequested = false;
+  let screenRecordingStartedAt: number | null = null;
+  let pageCreatedAt: number = 0;
+  let accumulatedRecordingSeconds = 0;
+  let audioRecordingStream: fs.WriteStream | null = null;
+  const pcmAudioPath = path.join(recordingsDir, `${currentMeetingCode}-audio.raw`);
+
   let context: BrowserContext | undefined;
   let audioDefaults: DefaultsState | undefined;
   let audioBridge: AudioBridge | undefined;
@@ -300,11 +362,13 @@ async function main(): Promise<void> {
   let stopChatWatcher: (() => void) | undefined;
   let attendanceTracker: AttendanceTracker | undefined;
   let mode: "speak" | "listen" | undefined = undefined;
+  let cleaningUp = false;
   let cleanedUp = false;
+  let isShuttingDown = false;
 
   const cleanup = async (): Promise<void> => {
-    if (cleanedUp) return;
-    cleanedUp = true;
+    if (cleaningUp || cleanedUp) return;
+    cleaningUp = true;
     log("Cleaning up session...");
     if (attendanceTracker) {
       try {
@@ -337,15 +401,134 @@ async function main(): Promise<void> {
     } catch {
       /* ignore */
     }
+    if (audioRecordingStream) {
+      try {
+        audioRecordingStream.end();
+      } catch {}
+      audioRecordingStream = null;
+    }
     const page = context?.pages()[0];
+    const meetVideo = page?.video();
     if (page && !page.isClosed()) {
-      await leaveMeeting(page).catch(() => {});
+      try {
+        await Promise.race([
+          leaveMeeting(page),
+          new Promise((resolve) => setTimeout(resolve, 1500)),
+        ]);
+      } catch {}
     }
-    try {
-      await context?.close();
-    } catch {
-      /* ignore */
+
+    if (context) {
+      try {
+        await Promise.race([
+          context.close(),
+          new Promise((resolve) => setTimeout(resolve, 1000)),
+        ]);
+      } catch {}
     }
+
+    // Forcefully terminate any residual Chrome process using kill-chrome.js on Windows
+    if (process.platform === "win32") {
+      try {
+        const killScript = path.resolve(__dirname, "..", "kill-chrome.js");
+        if (fs.existsSync(killScript)) {
+          spawnSync("cscript", ["//nologo", killScript], { stdio: "ignore", timeout: 2000 });
+        }
+      } catch {}
+    }
+
+    // Process and finalize screen recording with synchronized audio if user requested it
+    if (meetVideo) {
+      try {
+        const rawVideoPath = await meetVideo.path();
+        if (rawVideoPath && fs.existsSync(rawVideoPath)) {
+          if (screenRecordingRequested) {
+            const finalDuration = Math.max(
+              1,
+              accumulatedRecordingSeconds +
+                (isScreenRecording && screenRecordingStartedAt
+                  ? Math.floor((Date.now() - screenRecordingStartedAt) / 1000)
+                  : 0)
+            );
+            const targetVideoPath = path.join(recordingsDir, `${currentMeetingCode}.webm`);
+            const ffmpegExe = (ffmpegPath as any)?.default || ffmpegPath;
+
+            let audioMerged = false;
+            if (
+              ffmpegExe &&
+              fs.existsSync(ffmpegExe) &&
+              fs.existsSync(pcmAudioPath) &&
+              fs.statSync(pcmAudioPath).size > 1024
+            ) {
+              log("[ScreenRecorder] 🎙️ Merging live meeting audio and video tracks with FFmpeg...");
+              try {
+                const startOffsetSeconds =
+                  pageCreatedAt && screenRecordingStartedAt && screenRecordingStartedAt > pageCreatedAt
+                    ? Math.max(0, (screenRecordingStartedAt - pageCreatedAt) / 1000)
+                    : 0;
+
+                const ffmpegArgs: string[] = ["-y"];
+
+                if (startOffsetSeconds > 0.5) {
+                  log(`[ScreenRecorder] Trimming ${startOffsetSeconds.toFixed(2)}s pre-recording video for audio alignment...`);
+                  ffmpegArgs.push("-ss", startOffsetSeconds.toFixed(2));
+                }
+
+                ffmpegArgs.push(
+                  "-i", rawVideoPath,
+                  "-f", "s16le",
+                  "-ar", "16000",
+                  "-ac", "1",
+                  "-i", pcmAudioPath,
+                  "-c:v", "copy",
+                  "-c:a", "libopus",
+                  "-af", "aresample=async=1000",
+                  "-shortest",
+                  targetVideoPath
+                );
+                const res = spawnSync(ffmpegExe, ffmpegArgs, { stdio: "pipe" });
+                if (res.status === 0 && fs.existsSync(targetVideoPath) && fs.statSync(targetVideoPath).size > 0) {
+                  audioMerged = true;
+                  log("[ScreenRecorder] ✅ SUCCESS: Screen recording finalized with synchronized participant audio!");
+                } else {
+                  log("[ScreenRecorder] Note on audio mux:", res.stderr?.toString().slice(-200));
+                }
+              } catch (ffmpegErr: any) {
+                log("[ScreenRecorder] FFmpeg execution note:", ffmpegErr.message);
+              }
+            }
+
+            if (!audioMerged) {
+              fs.copyFileSync(rawVideoPath, targetVideoPath);
+            }
+
+            try {
+              fs.unlinkSync(rawVideoPath);
+            } catch {}
+            if (fs.existsSync(pcmAudioPath)) {
+              try {
+                fs.unlinkSync(pcmAudioPath);
+              } catch {}
+            }
+
+            log(`[ScreenRecorder] Recording saved: ${targetVideoPath}`);
+            log(`[ScreenRecorder] Recording duration: ${finalDuration}s`);
+          } else {
+            try {
+              fs.unlinkSync(rawVideoPath);
+            } catch {}
+            if (fs.existsSync(pcmAudioPath)) {
+              try {
+                fs.unlinkSync(pcmAudioPath);
+              } catch {}
+            }
+          }
+        }
+      } catch (err: any) {
+        log("[ScreenRecorder] Note on recording finalization:", err.message);
+      }
+    }
+
     if (audioDefaults) {
       try {
         await restoreDefaults(config.svclPath, audioDefaults);
@@ -357,11 +540,18 @@ async function main(): Promise<void> {
       }
     }
     log("Session cleanup complete.");
+    cleanedUp = true;
+    cleaningUp = false;
   };
 
   const shutdown = async (): Promise<void> => {
-    await cleanup();
-    process.exit(0);
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    try {
+      await cleanup();
+    } finally {
+      process.exit(0);
+    }
   };
 
   process.on("SIGINT", () => void shutdown());
@@ -377,8 +567,48 @@ async function main(): Promise<void> {
       log("[ControlServer] Received /leave request from dashboard. Initiating shutdown...");
       void shutdown();
     },
+    startRecording: () => {
+      screenRecordingRequested = true;
+      isScreenRecording = true;
+      screenRecordingStartedAt = Date.now();
+      try {
+        if (!audioRecordingStream) {
+          if (fs.existsSync(pcmAudioPath)) {
+            try { fs.unlinkSync(pcmAudioPath); } catch {}
+          }
+          audioRecordingStream = fs.createWriteStream(pcmAudioPath, { flags: "w" });
+        }
+      } catch (err: any) {
+        log("[ScreenRecorder] Audio file stream error:", err.message);
+      }
+      log("[ScreenRecorder] 🎥 Screen recording STARTED with live audio capture.");
+      return { ok: true, startedAt: screenRecordingStartedAt };
+    },
+    stopRecording: () => {
+      if (isScreenRecording && screenRecordingStartedAt) {
+        accumulatedRecordingSeconds += Math.floor((Date.now() - screenRecordingStartedAt) / 1000);
+      }
+      isScreenRecording = false;
+      screenRecordingStartedAt = null;
+      if (audioRecordingStream) {
+        try {
+          audioRecordingStream.end();
+        } catch {}
+        audioRecordingStream = null;
+      }
+      log(`[ScreenRecorder] ⏹️ Screen recording PAUSED/STOPPED. Total duration: ${accumulatedRecordingSeconds}s`);
+      return { ok: true, durationSeconds: accumulatedRecordingSeconds };
+    },
+    getRecordingStatus: () => {
+      const currentDuration =
+        accumulatedRecordingSeconds +
+        (isScreenRecording && screenRecordingStartedAt
+          ? Math.floor((Date.now() - screenRecordingStartedAt) / 1000)
+          : 0);
+      return { isRecording: isScreenRecording, durationSeconds: currentDuration };
+    },
   });
-  log(`[ControlServer] Ready on http://127.0.0.1:${controlPort} (endpoints: POST /leave, POST /mute)`);
+  log(`[ControlServer] Ready on http://127.0.0.1:${controlPort} (endpoints: POST /leave, POST /mute, POST /record/start, POST /record/stop)`);
 
   try {
     if (vapiEnabled) {
@@ -398,8 +628,9 @@ async function main(): Promise<void> {
       log("[Step 2] System audio defaults successfully configured to VB-Cable.");
     }
 
-    context = await launchContext(config.profileDir);
+    context = await launchContext(config.profileDir, recordingsDir);
     context.on("close", () => {
+      if (isShuttingDown || cleanedUp) return;
       log("[Browser] Chrome browser closed. Initiating shutdown...");
       void shutdown();
     });
@@ -499,8 +730,10 @@ async function main(): Promise<void> {
     `;
 
     const page = context.pages()[0] ?? (await context.newPage());
+    pageCreatedAt = Date.now();
     page.setDefaultTimeout(config.prejoinTimeoutMs);
     page.on("close", () => {
+      if (isShuttingDown || cleanedUp) return;
       log("[Meet] Google Meet tab was closed. Initiating shutdown...");
       void shutdown();
     });
@@ -525,6 +758,12 @@ async function main(): Promise<void> {
       let totalVoiceChunks = 0;
 
       audioBridge = new AudioBridge(config.bridgePort, (pcm) => {
+        if (isScreenRecording && audioRecordingStream) {
+          try {
+            audioRecordingStream.write(pcm);
+          } catch {}
+        }
+
         totalVoiceChunks++;
         audioBytes += pcm.length;
         for (let i = 0; i < pcm.length; i += 2) {
@@ -592,10 +831,14 @@ async function main(): Promise<void> {
     }
 
     // Start background monitor for meeting ending
-    stopCallMonitor = startCallMonitor(page, () => {
-      log("[CallMonitor] Google Meet call ended. Initiating shutdown...");
-      void shutdown();
-    });
+    stopCallMonitor = startCallMonitor(
+      page,
+      () => {
+        log("[CallMonitor] Google Meet call ended. Initiating shutdown...");
+        void shutdown();
+      },
+      () => attendanceTracker?.getActiveHumanCount() ?? -1
+    );
 
     try {
       await setCameraOff(page);
@@ -658,6 +901,11 @@ async function main(): Promise<void> {
       );
       vapiBridge.onAssistantAudio = (pcm) => {
         audioBridge?.sendToPage(pcm);
+        if (isScreenRecording && audioRecordingStream) {
+          try {
+            audioRecordingStream.write(pcm);
+          } catch {}
+        }
       };
       vapiBridge.onClose = (code, reason) => {
         log(`[VapiBridge] Vapi connection closed (code: ${code}, reason: ${reason}). Initiating shutdown...`);

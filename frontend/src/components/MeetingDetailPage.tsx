@@ -26,9 +26,11 @@ import {
   Share2,
   AlignLeft,
   Search,
+  Video,
+  Play,
 } from "lucide-react";
 
-type ActiveSection = "overview" | "minutes" | "actions" | "attendance" | "transcript" | "ai";
+type ActiveSection = "overview" | "minutes" | "actions" | "attendance" | "transcript" | "ai" | "recording";
 
 interface MeetingDetailPageProps {
   meeting: MeetingRecord;
@@ -45,6 +47,27 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+}
+
+function formatBytes(bytes?: number): string {
+  if (!bytes || bytes === 0) return "N/A";
+  const k = 1024;
+  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+function GoogleDriveIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg">
+      <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8H0c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+      <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44c-.8 1.4-1.2 2.95-1.2 4.5h27.5z" fill="#00ac47"/>
+      <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.5l5.85 10.15z" fill="#ea4335"/>
+      <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.4-4.5 1.2z" fill="#00832d"/>
+      <path d="m59.8 47.9-13.75-23.8-13.75 23.8h27.5z" fill="#2684fc"/>
+      <path d="m73.4 53.05-14.7-25.45-13.75 23.8 14.7 25.4h27.5c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+    </svg>
+  );
 }
 
 function GoogleMeetIcon({ className = "w-5 h-5" }: { className?: string }) {
@@ -418,6 +441,24 @@ export function MeetingDetailPage({
             <Sparkles className="w-4 h-4" />
             <span className="menu-item-text">Ask Meeting AI</span>
           </button>
+
+          <button
+            type="button"
+            className={`sidebar-menu-item ${activeSection === "recording" ? "active" : ""}`}
+            onClick={() => setActiveSection("recording")}
+          >
+            <Video className="w-4 h-4" />
+            <span className="menu-item-text">Screen Recording</span>
+            {meeting.recording?.status === "ready" || meeting.recording?.status === "uploaded" ? (
+              <span className="live-mini-pill" style={{ background: "#10b981", color: "#fff", fontSize: "10px", padding: "2px 6px" }}>
+                HD
+              </span>
+            ) : meeting.recording?.status === "uploading" ? (
+              <span className="live-mini-pill" style={{ background: "#f59e0b", color: "#fff", fontSize: "10px", padding: "2px 6px" }}>
+                SYNC
+              </span>
+            ) : null}
+          </button>
         </nav>
 
         {/* Quick Export & Share Section */}
@@ -573,6 +614,48 @@ export function MeetingDetailPage({
                 </div>
               </div>
             </div>
+
+            {/* Quick Recording Banner if available */}
+            {meeting.recording && (meeting.recording.status === "ready" || meeting.recording.status === "uploaded" || meeting.recording.localUrl || meeting.recording.driveUrl) && (
+              <div className="overview-recording-banner">
+                <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                  <div className="rec-banner-icon">
+                    <Video className="w-5 h-5 text-amber-500" />
+                  </div>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: "14.5px", fontWeight: 600, color: "#1e293b" }}>
+                      Meeting Screen Recording Available
+                    </h4>
+                    <p style={{ margin: "2px 0 0 0", fontSize: "12.5px", color: "#64748b" }}>
+                      Watch HD video playback of screens and presentations recorded live during this session.
+                    </p>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  {meeting.recording.driveUrl && (
+                    <a
+                      href={meeting.recording.driveUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-drive-link-sm"
+                      style={{ textDecoration: "none" }}
+                    >
+                      <GoogleDriveIcon className="w-3.5 h-3.5" />
+                      <span>Drive Link</span>
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    className="btn-primary-blue"
+                    onClick={() => setActiveSection("recording")}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Watch Recording</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Summary Card */}
             <div className="white-panel-card">
@@ -1273,6 +1356,156 @@ export function MeetingDetailPage({
                 </button>
               </form>
             </div>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════
+            SECTION: SCREEN RECORDING & PLAYBACK
+           ══════════════════════════════════════════════════════ */}
+        {activeSection === "recording" && (
+          <div className="canvas-body fade-in-section" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            {/* Section Header */}
+            <div className="canvas-section-header">
+              <div className="section-icon-box" style={{ background: "#fef3c7", color: "#d97706" }}>
+                <Video className="w-5 h-5" />
+              </div>
+              <div className="section-title-col">
+                <h1 className="section-main-heading">Meeting Screen Recording</h1>
+                <p className="section-sub-heading">High-definition video playback captured live by your meeting bot.</p>
+              </div>
+
+              {/* Action Buttons: Google Drive / Download */}
+              <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
+                {meeting.recording?.driveUrl && (
+                  <a
+                    href={meeting.recording.driveUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-drive-link"
+                    style={{ textDecoration: "none" }}
+                  >
+                    <GoogleDriveIcon className="w-4 h-4" />
+                    <span>Open in Google Drive</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+                {meeting.recording?.localUrl && (
+                  <a
+                    href={meeting.recording.localUrl}
+                    download={meeting.recording.fileName || `meeting-${meeting.id}.webm`}
+                    className="btn-outline-gray"
+                    style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download File</span>
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {meeting.recording && (meeting.recording.status === "ready" || meeting.recording.status === "uploaded" || meeting.recording.localUrl || meeting.recording.driveUrl) ? (
+              <div className="white-panel-card" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "18px" }}>
+                {/* Status Badges Row */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span className="status-pill-green" style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Ready for Playback</span>
+                    </span>
+                    {meeting.recording.driveUrl ? (
+                      <span className="drive-synced-badge">
+                        <GoogleDriveIcon className="w-3.5 h-3.5" />
+                        <span>Google Drive Synced</span>
+                      </span>
+                    ) : meeting.recording.status === "uploading" ? (
+                      <span className="drive-uploading-badge">
+                        <GoogleDriveIcon className="w-3.5 h-3.5 animate-pulse" />
+                        <span>Uploading to Drive...</span>
+                      </span>
+                    ) : (
+                      <span className="local-storage-badge">
+                        <span>Local HD Storage</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: "flex", gap: "16px", color: "#64748b", fontSize: "13px" }}>
+                    <span><strong>Duration:</strong> {meeting.recording.durationSeconds ? `${Math.floor(meeting.recording.durationSeconds / 60)}m ${meeting.recording.durationSeconds % 60}s` : meeting.duration}</span>
+                    {meeting.recording.fileSizeBytes ? (
+                      <span><strong>Size:</strong> {formatBytes(meeting.recording.fileSizeBytes)}</span>
+                    ) : null}
+                    <span><strong>Resolution:</strong> 720p HD</span>
+                  </div>
+                </div>
+
+                {/* Video Player */}
+                <div className="video-player-container">
+                  <video
+                    controls
+                    preload="metadata"
+                    className="screen-recording-video"
+                    src={meeting.recording.localUrl || meeting.recording.driveUrl}
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                </div>
+
+                {/* Google Drive Direct Share Banner */}
+                {meeting.recording.driveUrl && (
+                  <div className="drive-share-callout">
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                      <GoogleDriveIcon className="w-6 h-6 flex-shrink-0" />
+                      <div>
+                        <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 600, color: "#1e293b" }}>
+                          Shared on Google Drive
+                        </h4>
+                        <p style={{ margin: "2px 0 0 0", fontSize: "12.5px", color: "#64748b" }}>
+                          Anyone with this Google Drive link can stream or download this recording.
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                      <button
+                        type="button"
+                        className="btn-outline-gray"
+                        onClick={() => {
+                          if (meeting.recording?.driveUrl) {
+                            navigator.clipboard.writeText(meeting.recording.driveUrl);
+                            setCopiedLink(true);
+                            setTimeout(() => setCopiedLink(false), 2000);
+                          }
+                        }}
+                      >
+                        {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedLink ? "Copied!" : "Copy Drive Link"}</span>
+                      </button>
+                      <a
+                        href={meeting.recording.driveUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn-primary-blue"
+                        style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                      >
+                        <span>Open Drive</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="white-panel-card" style={{ padding: "48px 24px", textAlign: "center" }}>
+                <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+                  <Video className="w-6 h-6 text-slate-400" />
+                </div>
+                <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#1e293b", margin: "0 0 8px" }}>
+                  No Screen Recording Available
+                </h3>
+                <p style={{ fontSize: "13.5px", color: "#64748b", maxWidth: "420px", margin: "0 auto" }}>
+                  Screen recording was not activated during this call. To capture high-definition video in your next meeting, click <strong>&quot;Record Screen&quot;</strong> in the top meeting control bar.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </main>

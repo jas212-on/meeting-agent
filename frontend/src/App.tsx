@@ -27,7 +27,8 @@ import {
   Bot,
   Bell,
   Sun,
-  Moon
+  Moon,
+  Video
 } from "lucide-react";
 
 
@@ -64,6 +65,10 @@ function App() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const activeMeetingStartTimeRef = useRef<number | null>(null);
   const currentMeetingUrlRef = useRef<string>("");
+
+  // Screen recording state
+  const [isScreenRecording, setIsScreenRecording] = useState<boolean>(false);
+  const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
 
   // History state
   const [meetings, setMeetings] = useState<MeetingRecord[]>(() => {
@@ -169,6 +174,22 @@ function App() {
       if (interval) clearInterval(interval);
     };
   }, [status]);
+
+  /* ── Timer for active screen recording ───────────────────── */
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    if (isScreenRecording && (status === "running" || status === "joining")) {
+      interval = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      if (!isScreenRecording) setRecordingSeconds(0);
+      if (interval) clearInterval(interval);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isScreenRecording, status]);
 
   /* ── Auto-scroll logs ────────────────────────────────────── */
   useEffect(() => {
@@ -475,8 +496,40 @@ function App() {
       }
     }
 
+    setIsScreenRecording(false);
+    setRecordingSeconds(0);
     setStatus("idle");
     finalizeMeetingSession(meetingUrl, diff);
+  };
+
+  /* ── Toggle Screen Recording ──────────────────────────────── */
+  const handleToggleScreenRecording = async () => {
+    if (!isScreenRecording) {
+      try {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await apiFetch("/api/recording/start", { method: "POST", headers });
+        if (res && res.ok) {
+          setIsScreenRecording(true);
+          setRecordingSeconds(0);
+          setNotification("Screen recording started. The bot is capturing the meeting screen.");
+          setTimeout(() => setNotification(null), 3500);
+        }
+      } catch (err: any) {
+        console.warn("Failed to start screen recording:", err);
+      }
+    } else {
+      try {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        await apiFetch("/api/recording/stop", { method: "POST", headers });
+        setIsScreenRecording(false);
+        setNotification("Screen recording stopped. It will be finalized when the call concludes.");
+        setTimeout(() => setNotification(null), 4000);
+      } catch (err: any) {
+        console.warn("Failed to stop screen recording:", err);
+      }
+    }
   };
 
   /* ── Paste URL from clipboard helper ──────────────────────── */
@@ -948,10 +1001,33 @@ function App() {
                   <span>Join &amp; Record</span>
                 </button>
               ) : (
-                <button id="leave-btn" className="btn-leave-danger" onClick={handleLeave}>
-                  <Square className="btn-icon-svg fill-current" />
-                  <span>Leave &amp; Finalize ({formatDuration(elapsedSeconds)})</span>
-                </button>
+                <div className="active-meeting-actions-group">
+                  <button
+                    id="screen-record-btn"
+                    className={isScreenRecording ? "btn-screen-recording-active" : "btn-screen-record"}
+                    onClick={handleToggleScreenRecording}
+                    title={isScreenRecording ? "Stop screen recording" : "Record meeting screen with bot"}
+                    type="button"
+                  >
+                    {isScreenRecording ? (
+                      <>
+                        <span className="rec-live-pulse-dot" />
+                        <Square className="btn-icon-svg fill-current" />
+                        <span>Stop Recording ({formatDuration(recordingSeconds)})</span>
+                      </>
+                    ) : (
+                      <>
+                        <Video className="btn-icon-svg" />
+                        <span>Record Screen</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button id="leave-btn" className="btn-leave-danger" onClick={handleLeave}>
+                    <Square className="btn-icon-svg fill-current" />
+                    <span>Leave &amp; Finalize ({formatDuration(elapsedSeconds)})</span>
+                  </button>
+                </div>
               )}
             </div>
 

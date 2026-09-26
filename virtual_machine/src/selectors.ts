@@ -46,11 +46,29 @@ export const callEndedSelectors = [
   'button:has-text("Return to home screen")',
   'a:has-text("Return to home screen")',
   'button:has-text("Rejoin")',
+  'button:has-text("Join again")',
   'span:has-text("Return to home screen")',
-  'text="You left the meeting"',
-  'text="You\'ve been removed from the meeting"',
-  'text="The meeting has ended"',
-  'text="Ready to rejoin?"',
+  'span:has-text("Rejoin")',
+  'text=/You(\'ve| have)? left the meeting/i',
+  'text=/You(\'ve| have)? been removed/i',
+  'text=/The meeting has ended/i',
+  'text=/The host ended the meeting/i',
+  'text=/The host has ended/i',
+  'text=/This meeting has ended/i',
+  'text=/Ready to rejoin/i',
+  'text=/Submit feedback/i',
+  'div[role="dialog"]:has-text("ended")',
+  'div[role="alertdialog"]:has-text("ended")',
+] as const;
+
+export const aloneSelectors = [
+  'text=/You(\'re| are) the only one here/i',
+  'text=/Everyone else has left/i',
+  'text=/Everyone else left/i',
+  'text=/Ready to leave/i',
+  'text=/all other participants have left/i',
+  'text=/No one else is here/i',
+  'text=/Waiting for others to join/i',
 ] as const;
 
 export const chatButtonSelectors = [

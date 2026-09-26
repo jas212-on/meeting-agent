@@ -4,3 +4,10 @@ dist/
 tools/
 *.log
 .env
+
+# Scratch, temporary profiles & test data
+scratch/
+temp-profile/
+
+# Audio and video recordings
+recordings/

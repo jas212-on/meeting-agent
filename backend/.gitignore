@@ -9,6 +9,14 @@ dist/
 .env.*
 !.env.example
 
+# Secrets & Service Accounts
+service-account*.json
+*.pem
+*.key
+
+# Recordings & Media
+recordings/
+
 # Logs
 logs
 *.log

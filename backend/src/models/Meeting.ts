@@ -53,6 +53,17 @@ export interface ITranscriptEntry {
   avatarColor?: string;
 }
 
+export interface IMeetingRecording {
+  status: "idle" | "recording" | "ready" | "uploading" | "uploaded" | "failed";
+  localUrl?: string;
+  fileName?: string;
+  fileSizeBytes?: number;
+  durationSeconds?: number;
+  driveUrl?: string;
+  driveFileId?: string;
+  uploadedAt?: string;
+}
+
 export interface IMeeting extends Document {
   meetingId: string;
   user?: Types.ObjectId;
@@ -68,6 +79,7 @@ export interface IMeeting extends Document {
   minutes: IMeetingMinutes;
   transcript?: ITranscriptEntry[];
   rawLogs?: string[];
+  recording?: IMeetingRecording;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -155,6 +167,24 @@ const TranscriptEntrySchema = new Schema<ITranscriptEntry>(
   { _id: false }
 );
 
+const MeetingRecordingSchema = new Schema<IMeetingRecording>(
+  {
+    status: {
+      type: String,
+      enum: ["idle", "recording", "ready", "uploading", "uploaded", "failed"],
+      default: "idle",
+    },
+    localUrl: { type: String, default: "" },
+    fileName: { type: String, default: "" },
+    fileSizeBytes: { type: Number, default: 0 },
+    durationSeconds: { type: Number, default: 0 },
+    driveUrl: { type: String, default: "" },
+    driveFileId: { type: String, default: "" },
+    uploadedAt: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const MeetingSchema = new Schema<IMeeting>(
   {
     meetingId: {
@@ -230,6 +260,10 @@ const MeetingSchema = new Schema<IMeeting>(
     rawLogs: {
       type: [String],
       default: [],
+    },
+    recording: {
+      type: MeetingRecordingSchema,
+      default: () => ({ status: "idle" }),
     },
   },
   {

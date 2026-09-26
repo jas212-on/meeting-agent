@@ -1,6 +1,8 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import path from "node:path";
+import fs from "node:fs";
 import { connectDB, closeDB, getDBStatus } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import meetingRoutes from "./routes/meetingRoutes.js";
@@ -53,6 +55,16 @@ app.get("/api/health", (_req: Request, res: Response) => {
 });
 
 /* ── Route Mounts ────────────────────────────────────────── */
+const backendRecordingsDir = path.join(process.cwd(), "recordings");
+const vmRecordingsDir = path.resolve(process.cwd(), "..", "virtual_machine", "recordings");
+if (!fs.existsSync(backendRecordingsDir)) {
+  fs.mkdirSync(backendRecordingsDir, { recursive: true });
+}
+app.use("/recordings", express.static(backendRecordingsDir));
+if (fs.existsSync(vmRecordingsDir)) {
+  app.use("/recordings", express.static(vmRecordingsDir));
+}
+
 app.use("/api/auth", authRoutes);
 app.use("/api/groups", groupRoutes);
 app.use("/api/meetings", meetingDataRoutes);

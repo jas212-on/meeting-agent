@@ -671,6 +671,27 @@ export class AttendanceTracker {
 
     return result;
   }
+
+  /**
+   * Returns the count of human participants currently present in the meeting (excluding the bot).
+   */
+  public getActiveHumanCount(): number {
+    let count = 0;
+    const botName = (this.botDisplayName || "meetminutes").toLowerCase();
+    for (const record of this.participants.values()) {
+      if (record.currentSession) {
+        const nameLower = record.name.toLowerCase();
+        const isBot =
+          nameLower.includes("meetminutes") ||
+          nameLower.includes("assistant") ||
+          nameLower.includes(botName);
+        if (!isBot) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
 }
 
 /**

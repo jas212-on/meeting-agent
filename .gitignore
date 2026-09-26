@@ -1,3 +1,15 @@
 VBCABLE_Driver_Pack45/
 VBCABLE_Driver_Pack45.zip
 svcl-x64.zip
+
+# Audio & Video Recordings
+**/recordings/
+
+# Temp browser profiles and scratch data
+**/scratch/
+**/temp-profile/
+
+# Service account keys and certificates
+**/service-account*.json
+*.pem
+*.key

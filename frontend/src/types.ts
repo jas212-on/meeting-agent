@@ -49,6 +49,17 @@ export interface TranscriptEntry {
   avatarColor?: string;
 }
 
+export interface MeetingRecording {
+  status: "idle" | "recording" | "ready" | "uploading" | "uploaded" | "failed";
+  localUrl?: string;
+  fileName?: string;
+  fileSizeBytes?: number;
+  durationSeconds?: number;
+  driveUrl?: string;
+  driveFileId?: string;
+  uploadedAt?: string;
+}
+
 export interface MeetingRecord {
   id: string; // Meeting ID or code (e.g., 'abc-defg-hij')
   title: string;
@@ -62,6 +73,7 @@ export interface MeetingRecord {
   minutes: MeetingMinutes;
   transcript?: TranscriptEntry[];
   status: "completed" | "in-progress" | "scheduled";
+  recording?: MeetingRecording;
 }
 
 export interface UserSummary {

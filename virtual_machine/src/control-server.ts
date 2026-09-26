@@ -3,6 +3,9 @@ import http from "node:http";
 export interface ControlHandlers {
   setAgentMuted: (muted: boolean) => void;
   leave: () => void;
+  startRecording?: () => { ok: boolean; startedAt: number };
+  stopRecording?: () => { ok: boolean; durationSeconds: number };
+  getRecordingStatus?: () => { isRecording: boolean; durationSeconds: number };
 }
 
 export function startControlServer(
@@ -33,6 +36,21 @@ export function startControlServer(
       if (req.method === "POST" && req.url === "/leave") {
         handlers.leave();
         send(200, JSON.stringify({ ok: true }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/record/start") {
+        const result = handlers.startRecording ? handlers.startRecording() : { ok: true, startedAt: Date.now() };
+        send(200, JSON.stringify(result));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/record/stop") {
+        const result = handlers.stopRecording ? handlers.stopRecording() : { ok: true, durationSeconds: 0 };
+        send(200, JSON.stringify(result));
+        return;
+      }
+      if (req.method === "GET" && req.url === "/record/status") {
+        const result = handlers.getRecordingStatus ? handlers.getRecordingStatus() : { isRecording: false, durationSeconds: 0 };
+        send(200, JSON.stringify(result));
         return;
       }
       send(404, JSON.stringify({ ok: false }));

@@ -192,13 +192,15 @@ export async function leaveMeeting(page: Page): Promise<void> {
   try {
     console.log("[MeetControl] Step: Leaving Google Meet call...");
     const leave = page.locator(selectors.IN_CALL).first();
-    await leave.click({ timeout: 3_000 });
-    await sleep(1_000);
-    const confirm = page
-      .locator('button:has-text("Leave meeting"), button:has-text("Just leave the meeting")')
-      .first();
-    if (await confirm.isVisible().catch(() => false)) {
-      await confirm.click();
+    if (await leave.isVisible({ timeout: 800 }).catch(() => false)) {
+      await leave.click({ timeout: 1_000 });
+      await sleep(400);
+      const confirm = page
+        .locator('button:has-text("Leave meeting"), button:has-text("Just leave the meeting")')
+        .first();
+      if (await confirm.isVisible({ timeout: 500 }).catch(() => false)) {
+        await confirm.click();
+      }
     }
     console.log("[MeetControl] SUCCESS: Left Google Meet call.");
   } catch {

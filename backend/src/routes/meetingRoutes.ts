@@ -1,21 +1,34 @@
 import { Router, type Response } from "express";
-import { spawn, exec, type ChildProcess } from "node:child_process";
+import { spawn, exec, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { optionalAuth, AuthRequest } from "../middleware/auth.js";
 import { Meeting, type ITranscriptEntry } from "../models/Meeting.js";
 import { fetchVapiCallTranscript, terminateVapiCall } from "../services/vapiService.js";
-import { generateMeetingSummary } from "../services/groqService.js";
+import { generateMeetingSummary, transcribeAudioWithGroqWhisper } from "../services/groqService.js";
+import { uploadMeetingRecording, isDriveConfigured } from "../services/driveService.js";
 
 const router = Router();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VM_DIR = path.resolve(__dirname, "..", "..", "..", "virtual_machine");
 
+function killBotChrome(): void {
+  if (process.platform === "win32") {
+    try {
+      const scriptPath = path.resolve(VM_DIR, "kill-chrome.js");
+      if (fs.existsSync(scriptPath)) {
+        spawnSync("cscript", ["//nologo", scriptPath], { stdio: "ignore", timeout: 3000 });
+      }
+    } catch {}
+  }
+}
+
 function killProcessTree(pid: number): void {
   if (process.platform === "win32") {
     exec(`taskkill /pid ${pid} /T /F`, () => {});
+    killBotChrome();
   } else {
     try {
       process.kill(-pid, "SIGKILL");
@@ -42,6 +55,12 @@ let currentUserName = "Meeting Host";
 let currentUserEmail = "host@meetminutes.ai";
 let recordedAttendees: any[] = [];
 let activeMeetingTranscripts: ITranscriptEntry[] = [];
+
+// Screen recording session state
+let isScreenRecording = false;
+let screenRecordingStartTime: number | null = null;
+let savedRecordingPath: string | null = null;
+let savedRecordingDuration = 0;
 
 function broadcast(line: string): void {
   logs.push(line);
@@ -257,19 +276,86 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
     }
   }
 
-  // 3. Generate structured AI minutes via Groq LLM
   const attendeeNamesList =
     recordedAttendees.length > 0
       ? recordedAttendees.map((a) => a.name)
       : [currentUserName, "MeetMinutes AI Assistant"];
 
+  // 3. Consolidate live transcripts and apply fallbacks
+  let finalTranscripts: ITranscriptEntry[] = consolidateTranscripts(activeMeetingTranscripts);
+
+  // Fallback 3a: Extract from Vapi call messages (explicitly ignoring system prompt)
+  if (finalTranscripts.length === 0 && vapiMessages && vapiMessages.length > 0) {
+    for (let i = 0; i < vapiMessages.length; i++) {
+      const vm = vapiMessages[i];
+      const roleStr = (vm.role || "user").toLowerCase();
+      if (roleStr === "system") continue;
+      const isBot = roleStr.includes("assistant") || roleStr.includes("bot");
+      const txt = vm.message || vm.content || vm.text || "";
+      if (txt && typeof txt === "string") {
+        finalTranscripts.push({
+          id: `tr-vapi-${i}-${Date.now()}`,
+          speaker: isBot ? "MeetMinutes AI Agent" : (attendeeNamesList[0] || "Participant"),
+          role: isBot ? "Assistant" : "Speaker",
+          text: txt,
+          timestamp: new Date(startTime + i * 15000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          avatarColor: isBot ? "#10b981" : "#2563eb",
+        });
+      }
+    }
+  }
+
+  // Fallback 3b: If transcript is still missing/empty, transcribe recorded audio via Groq Whisper!
+  if (finalTranscripts.length === 0 || !officialTranscript.trim()) {
+    const audioCandidates = [
+      path.join(VM_DIR, "recordings", `${meetingId}-audio.raw`),
+      savedRecordingPath,
+      path.join(VM_DIR, "recordings", `${meetingId}.webm`),
+      path.join(process.cwd(), "recordings", `${meetingId}.webm`),
+    ].filter(Boolean) as string[];
+
+    for (const audCandidate of audioCandidates) {
+      if (fs.existsSync(audCandidate) && fs.statSync(audCandidate).size > 2000) {
+        broadcast(`[dashboard] 🎙️ Transcribing meeting audio with Groq Whisper (${path.basename(audCandidate)})...`);
+        try {
+          const whisperRes = await transcribeAudioWithGroqWhisper(audCandidate);
+          if (whisperRes.text && whisperRes.segments.length > 0) {
+            broadcast(`[dashboard] ✅ Groq Whisper transcribed ${whisperRes.segments.length} speech segments (${whisperRes.text.length} chars).`);
+            if (!officialTranscript.trim()) {
+              officialTranscript = whisperRes.text;
+            }
+            if (finalTranscripts.length === 0) {
+              const primarySpeaker = attendeeNamesList[0] || currentUserName || "Participant";
+              for (let i = 0; i < whisperRes.segments.length; i++) {
+                const seg = whisperRes.segments[i];
+                const segTime = new Date(startTime + seg.start * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                finalTranscripts.push({
+                  id: `tr-whisper-${i}-${Date.now()}`,
+                  speaker: primarySpeaker,
+                  role: "Speaker",
+                  text: seg.text,
+                  timestamp: segTime,
+                  avatarColor: "#2563eb",
+                });
+              }
+            }
+            break;
+          }
+        } catch (err: any) {
+          console.warn("[dashboard] Groq Whisper fallback note:", err.message);
+        }
+      }
+    }
+  }
+
+  // 4. Generate structured AI minutes via Groq LLM
   broadcast("[dashboard] 🧠 Generating meeting minutes with Groq AI...");
   const minutes = await generateMeetingSummary(officialTranscript, {
     meetingId,
     meetingTitle: `Google Meet Session (${meetingId})`,
     duration: durationStr,
     attendeeNames: attendeeNamesList,
-    fallbackTranscripts,
+    fallbackTranscripts: fallbackTranscripts.length > 0 ? fallbackTranscripts : finalTranscripts.map((t) => `${t.speaker}: ${t.text}`),
   });
 
   // 4. Construct final attendees list with entry, leave, and rejoin intervals
@@ -372,25 +458,6 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
   }
 
   try {
-    const finalTranscripts: ITranscriptEntry[] = consolidateTranscripts(activeMeetingTranscripts);
-    if (finalTranscripts.length === 0 && vapiMessages && vapiMessages.length > 0) {
-      for (let i = 0; i < vapiMessages.length; i++) {
-        const vm = vapiMessages[i];
-        const roleStr = (vm.role || "user").toLowerCase();
-        const isBot = roleStr.includes("assistant") || roleStr.includes("bot");
-        const txt = vm.message || vm.content || vm.text || "";
-        if (txt && typeof txt === "string") {
-          finalTranscripts.push({
-            id: `tr-vapi-${i}-${Date.now()}`,
-            speaker: isBot ? "MeetMinutes AI Agent" : (attendeeNamesList[0] || "Participant"),
-            role: isBot ? "Assistant" : "Speaker",
-            text: txt,
-            timestamp: new Date(startTime + i * 15000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            avatarColor: isBot ? "#10b981" : "#2563eb",
-          });
-        }
-      }
-    }
 
     const updateData: Record<string, any> = {
       meetingId,
@@ -407,6 +474,147 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
 
     if (currentUserId) {
       updateData.user = currentUserId;
+    }
+
+    // Attach screen recording details if video was captured
+    const possibleRecordings = [
+      savedRecordingPath,
+      path.join(VM_DIR, "recordings", `${meetingId}.webm`),
+      path.join(process.cwd(), "recordings", `${meetingId}.webm`),
+    ].filter(Boolean) as string[];
+
+    let finalRecordingFile: string | null = null;
+    for (const p of possibleRecordings) {
+      if (fs.existsSync(p)) {
+        finalRecordingFile = p;
+        break;
+      }
+    }
+
+    // Fallback: If not found, check VM recordings directory for recent webm files
+    if (!finalRecordingFile) {
+      const vmRecordingsDir = path.join(VM_DIR, "recordings");
+      if (fs.existsSync(vmRecordingsDir)) {
+        try {
+          const files = fs.readdirSync(vmRecordingsDir)
+            .filter((f) => f.endsWith(".webm"))
+            .map((f) => {
+              const fullPath = path.join(vmRecordingsDir, f);
+              const stat = fs.statSync(fullPath);
+              return { fullPath, mtimeMs: stat.mtimeMs, size: stat.size };
+            })
+            .filter((f) => f.size > 10000 && Date.now() - f.mtimeMs < 15 * 60 * 1000)
+            .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+          if (files.length > 0) {
+            finalRecordingFile = files[0].fullPath;
+            console.log(`[meetingRoutes] Discovered recent recording file: ${finalRecordingFile}`);
+          }
+        } catch (scanErr: any) {
+          console.warn("[meetingRoutes] Note on fallback recording scan:", scanErr.message);
+        }
+      }
+    }
+
+    if (finalRecordingFile) {
+      const stats = fs.statSync(finalRecordingFile);
+      const recordingFileName = `${meetingId}.webm`;
+      const backendRecordingsFolder = path.join(process.cwd(), "recordings");
+      if (!fs.existsSync(backendRecordingsFolder)) {
+        fs.mkdirSync(backendRecordingsFolder, { recursive: true });
+      }
+      const backendTarget = path.join(backendRecordingsFolder, recordingFileName);
+
+      // If the discovered file is a raw page@ video and a matching raw audio file exists, mux them!
+      const pcmAudioPath = path.join(VM_DIR, "recordings", `${meetingId}-audio.raw`);
+      const isRawSilentVideo = path.basename(finalRecordingFile).startsWith("page@");
+      let muxedWithAudio = false;
+
+      if (isRawSilentVideo && fs.existsSync(pcmAudioPath) && fs.statSync(pcmAudioPath).size > 1024) {
+        try {
+          const ffmpegStaticPkg = path.join(VM_DIR, "node_modules", "ffmpeg-static");
+          let ffmpegExe: string | null = null;
+          if (fs.existsSync(ffmpegStaticPkg)) {
+            const pkgJson = JSON.parse(fs.readFileSync(path.join(ffmpegStaticPkg, "package.json"), "utf8"));
+            const binRel = pkgJson.bin?.ffmpeg || "ffmpeg.exe";
+            const candidate = path.join(ffmpegStaticPkg, binRel);
+            if (fs.existsSync(candidate)) ffmpegExe = candidate;
+          }
+
+          if (ffmpegExe) {
+            console.log(`[meetingRoutes] 🎙️ Merging unmerged raw video with participant audio for ${meetingId}...`);
+            const { spawnSync } = await import("node:child_process");
+            const res = spawnSync(ffmpegExe, [
+              "-y",
+              "-i", finalRecordingFile,
+              "-f", "s16le",
+              "-ar", "16000",
+              "-ac", "1",
+              "-i", pcmAudioPath,
+              "-c:v", "copy",
+              "-c:a", "libopus",
+              "-af", "aresample=async=1000",
+              "-shortest",
+              backendTarget,
+            ], { stdio: "pipe" });
+
+            if (res.status === 0 && fs.existsSync(backendTarget) && fs.statSync(backendTarget).size > 1000) {
+              muxedWithAudio = true;
+              console.log(`[meetingRoutes] ✅ Successfully muxed raw video and audio into ${backendTarget}`);
+            } else {
+              console.warn("[meetingRoutes] Fallback FFmpeg mux note:", res.stderr?.toString().slice(-200));
+            }
+          }
+        } catch (muxErr: any) {
+          console.warn("[meetingRoutes] Note on fallback audio mux:", muxErr.message);
+        }
+      }
+
+      if (!muxedWithAudio && path.resolve(finalRecordingFile) !== path.resolve(backendTarget)) {
+        try {
+          fs.copyFileSync(finalRecordingFile, backendTarget);
+        } catch (err: any) {
+          console.warn("[meetingRoutes] Note on recording copy:", err.message);
+        }
+      }
+
+      updateData.recording = {
+        status: isDriveConfigured() ? "uploading" : "ready",
+        localUrl: `/recordings/${recordingFileName}`,
+        fileName: recordingFileName,
+        fileSizeBytes: stats.size,
+        durationSeconds: savedRecordingDuration || durationSeconds,
+      };
+
+      // Asynchronously trigger Google Drive upload if configured
+      if (isDriveConfigured()) {
+        (async () => {
+          try {
+            broadcast(`[dashboard] ☁️ Uploading screen recording to Google Drive...`);
+            const driveResult = await uploadMeetingRecording(
+              backendTarget,
+              meetingId,
+              `Google Meet Session (${meetingId})`
+            );
+            if (driveResult && driveResult.driveUrl) {
+              await Meeting.findOneAndUpdate(
+                { meetingId },
+                {
+                  $set: {
+                    "recording.status": "uploaded",
+                    "recording.driveUrl": driveResult.driveUrl,
+                    "recording.driveFileId": driveResult.driveFileId,
+                    "recording.uploadedAt": new Date().toISOString(),
+                  },
+                }
+              );
+              broadcast(`[dashboard] ✅ Recording uploaded to Google Drive: ${driveResult.driveUrl}`);
+            }
+          } catch (driveErr: any) {
+            console.warn("[meetingRoutes] Google Drive upload error:", driveErr.message);
+          }
+        })();
+      }
     }
 
     await Meeting.findOneAndUpdate(
@@ -430,6 +638,10 @@ async function saveCompletedMeetingToDB(exitCode: number | null = 0): Promise<vo
     recordedAttendees = [];
     activeMeetingTranscripts = [];
     logs = [];
+    isScreenRecording = false;
+    screenRecordingStartTime = null;
+    savedRecordingPath = null;
+    savedRecordingDuration = 0;
     isSavingMeeting = false;
   }
 }
@@ -552,6 +764,17 @@ router.post("/join", optionalAuth, async (req: AuthRequest, res: Response): Prom
         } catch (err: any) {
           console.warn("[dashboard] Could not parse ATTENDANCE_DATA JSON:", err.message);
         }
+      }
+
+      // Detect Screen Recording output emitted by join-meeting
+      const recSavedMatch = text.match(/\[ScreenRecorder\] Recording saved:\s*(.+)/);
+      if (recSavedMatch && recSavedMatch[1]) {
+        savedRecordingPath = recSavedMatch[1].trim();
+        broadcast(`[dashboard] 🎥 Screen recording file finalized: ${path.basename(savedRecordingPath)}`);
+      }
+      const recDurMatch = text.match(/\[ScreenRecorder\] Recording duration:\s*(\d+)s/);
+      if (recDurMatch && recDurMatch[1]) {
+        savedRecordingDuration = parseInt(recDurMatch[1], 10);
       }
 
       // Filter out partial/interim transcripts to prevent fragmented word-by-word cards
@@ -678,7 +901,13 @@ router.post("/leave", async (_req, res: Response): Promise<void> => {
     // Fall back to signal/kill if control server is unreachable
   }
 
-  // 2. Force-kill entire process tree if still running after 3 seconds
+  // Ensure bot Chrome window is closed promptly (within 1.5s)
+  setTimeout(() => {
+    killBotChrome();
+  }, 1500);
+
+  // 2. Force-kill entire process tree if still running after 3.5 seconds
+  // (allows Playwright to flush video and FFmpeg to mux audio)
   const timer = setTimeout(async () => {
     if (activeProcess && pid) {
       broadcast("[dashboard] Force-terminating session process tree...");
@@ -687,10 +916,11 @@ router.post("/leave", async (_req, res: Response): Promise<void> => {
       status = "idle";
       await saveCompletedMeetingToDB(0);
     }
-  }, 3000);
+  }, 3500);
 
   proc.once("close", () => {
     clearTimeout(timer);
+    killBotChrome();
     activeProcess = null;
     status = "idle";
   });
@@ -748,6 +978,71 @@ router.get("/meetings/:id/transcript", async (req, res: Response): Promise<void>
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+/* ── Screen Recording Endpoints ───────────────────────── */
+router.post("/recording/start", async (_req, res: Response): Promise<void> => {
+  if (status === "idle" || !activeProcess) {
+    res.status(400).json({ error: "No active meeting session to record" });
+    return;
+  }
+  try {
+    const vmRes = await fetch("http://127.0.0.1:4712/record/start", {
+      method: "POST",
+      signal: AbortSignal.timeout(2000),
+    });
+    if (vmRes.ok) {
+      isScreenRecording = true;
+      screenRecordingStartTime = Date.now();
+      broadcast("[dashboard] 🎥 Screen recording started.");
+      res.json({ ok: true, isRecording: true, startedAt: screenRecordingStartTime });
+      return;
+    }
+  } catch (err: any) {
+    console.warn("[meetingRoutes] Note connecting to VM /record/start:", err.message);
+  }
+  isScreenRecording = true;
+  screenRecordingStartTime = Date.now();
+  broadcast("[dashboard] 🎥 Screen recording started.");
+  res.json({ ok: true, isRecording: true, startedAt: screenRecordingStartTime });
+});
+
+router.post("/recording/stop", async (_req, res: Response): Promise<void> => {
+  try {
+    const vmRes = await fetch("http://127.0.0.1:4712/record/stop", {
+      method: "POST",
+      signal: AbortSignal.timeout(2000),
+    });
+    if (vmRes.ok) {
+      isScreenRecording = false;
+      broadcast("[dashboard] ⏹️ Screen recording paused/stopped.");
+      res.json({ ok: true, isRecording: false });
+      return;
+    }
+  } catch (err: any) {
+    console.warn("[meetingRoutes] Note connecting to VM /record/stop:", err.message);
+  }
+  isScreenRecording = false;
+  broadcast("[dashboard] ⏹️ Screen recording stopped.");
+  res.json({ ok: true, isRecording: false });
+});
+
+router.get("/recording/status", async (_req, res: Response): Promise<void> => {
+  try {
+    const vmRes = await fetch("http://127.0.0.1:4712/record/status", {
+      signal: AbortSignal.timeout(1000),
+    });
+    if (vmRes.ok) {
+      const data = await vmRes.json();
+      res.json(data);
+      return;
+    }
+  } catch {}
+  res.json({
+    isRecording: isScreenRecording,
+    startedAt: screenRecordingStartTime,
+    durationSeconds: savedRecordingDuration,
+  });
 });
 
 export default router;

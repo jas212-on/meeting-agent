@@ -1,6 +1,10 @@
+import fs from "fs";
+import path from "path";
+import { spawnSync } from "child_process";
 import { IMeetingMinutes, IActionItem, IDiscussionTopic } from "../models/Meeting.js";
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 
 export interface SummarizeMeetingOptions {
   meetingId: string;
@@ -104,7 +108,7 @@ Generate the structured JSON minutes now.`;
           ],
           response_format: { type: "json_object" },
           temperature: 0.2,
-          max_tokens: 1500,
+          max_tokens: 950,
         }),
       });
 
@@ -234,3 +238,141 @@ function createFallbackMeetingMinutes(
     ],
   };
 }
+
+export interface WhisperSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface WhisperTranscriptionResult {
+  text: string;
+  segments: WhisperSegment[];
+}
+
+function getFfmpegPath(): string | null {
+  const candidates = [
+    path.resolve(process.cwd(), "..", "virtual_machine", "node_modules", "ffmpeg-static"),
+    path.resolve(process.cwd(), "node_modules", "ffmpeg-static"),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      try {
+        const pkgJson = JSON.parse(fs.readFileSync(path.join(c, "package.json"), "utf8"));
+        const binRel = pkgJson.bin?.ffmpeg || "ffmpeg.exe";
+        const candidate = path.join(c, binRel);
+        if (fs.existsSync(candidate)) return candidate;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+/**
+ * Transcribes an audio or video file (raw PCM s16le, webm, wav) using Groq Whisper API (whisper-large-v3).
+ */
+export async function transcribeAudioWithGroqWhisper(
+  audioInputPath: string
+): Promise<WhisperTranscriptionResult> {
+  const apiKey = process.env.GROQ_API_KEY?.trim();
+  if (!apiKey) {
+    console.warn("[GroqWhisper] Notice: GROQ_API_KEY is not configured in backend/.env.");
+    return { text: "", segments: [] };
+  }
+
+  if (!fs.existsSync(audioInputPath)) {
+    console.warn(`[GroqWhisper] Audio file not found at: ${audioInputPath}`);
+    return { text: "", segments: [] };
+  }
+
+  const stat = fs.statSync(audioInputPath);
+  if (stat.size < 1000) {
+    console.log(`[GroqWhisper] Audio file too small (${stat.size} bytes). Skipping.`);
+    return { text: "", segments: [] };
+  }
+
+  const ffmpegExe = getFfmpegPath();
+  let wavPath = audioInputPath;
+  let isTempWav = false;
+
+  // If input is .raw (16kHz s16le mono) or .webm, extract/convert to 16kHz mono WAV for Whisper
+  if (audioInputPath.endsWith(".raw") || audioInputPath.endsWith(".webm")) {
+    if (!ffmpegExe) {
+      console.warn("[GroqWhisper] FFmpeg executable not found to prepare audio for Whisper.");
+      return { text: "", segments: [] };
+    }
+
+    wavPath = path.join(
+      path.dirname(audioInputPath),
+      `whisper-temp-${Date.now()}-${Math.random().toString(36).substring(7)}.wav`
+    );
+    isTempWav = true;
+
+    const ffmpegArgs = audioInputPath.endsWith(".raw")
+      ? ["-y", "-f", "s16le", "-ar", "16000", "-ac", "1", "-i", audioInputPath, "-ar", "16000", "-ac", "1", wavPath]
+      : ["-y", "-i", audioInputPath, "-vn", "-ar", "16000", "-ac", "1", wavPath];
+
+    const convertRes = spawnSync(ffmpegExe, ffmpegArgs, { stdio: "pipe" });
+    if (convertRes.status !== 0 || !fs.existsSync(wavPath)) {
+      console.warn("[GroqWhisper] FFmpeg audio extraction failed:", convertRes.stderr?.toString().slice(-200));
+      return { text: "", segments: [] };
+    }
+  }
+
+  try {
+    const fileData = fs.readFileSync(wavPath);
+    if (fileData.length < 1000) {
+      return { text: "", segments: [] };
+    }
+
+    const formData = new FormData();
+    formData.append("file", new Blob([fileData], { type: "audio/wav" }), "audio.wav");
+    formData.append("model", "whisper-large-v3");
+    formData.append("response_format", "verbose_json");
+    formData.append("language", "en");
+    formData.append("temperature", "0");
+    formData.append("prompt", "Discussion in a Google Meet call.");
+
+    console.log(`[GroqWhisper] Transcribing ${Math.round(fileData.length / 1024)} KB audio with Groq Whisper...`);
+    const res = await fetch(GROQ_AUDIO_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.warn(`[GroqWhisper] Groq Whisper API HTTP ${res.status}: ${errText}`);
+      return { text: "", segments: [] };
+    }
+
+    const json = (await res.json()) as any;
+    const cleanSegments: WhisperSegment[] = [];
+
+    for (const s of (json.segments || [])) {
+      const t = (s.text || "").trim();
+      if (t && t !== "." && t !== "..." && (s.no_speech_prob ?? 0) < 0.6) {
+        cleanSegments.push({
+          start: s.start ?? 0,
+          end: s.end ?? 0,
+          text: t,
+        });
+      }
+    }
+
+    const fullCleanText = cleanSegments.map((s) => s.text).join(" ").trim() || (json.text || "").trim();
+    console.log(`[GroqWhisper] ✅ Transcription complete: ${cleanSegments.length} segments, ${fullCleanText.length} chars.`);
+    return {
+      text: fullCleanText,
+      segments: cleanSegments,
+    };
+  } catch (err: any) {
+    console.error("[GroqWhisper] Error during Whisper transcription:", err.message);
+    return { text: "", segments: [] };
+  } finally {
+    if (isTempWav && fs.existsSync(wavPath)) {
+      try { fs.unlinkSync(wavPath); } catch {}
+    }
+  }
+}
+

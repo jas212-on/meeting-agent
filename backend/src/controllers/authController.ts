@@ -4,7 +4,7 @@ import { OAuth2Client } from "google-auth-library";
 import { User } from "../models/User.js";
 import { AuthRequest } from "../middleware/auth.js";
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const googleClient = new OAuth2Client(process.env.GOOGLE_AUTH_CLIENT_ID || process.env.GOOGLE_CLIENT_ID);
 
 function generateToken(id: string, email: string): string {
   const secret = process.env.JWT_SECRET || "default_jwt_secret_fallback";
@@ -102,6 +102,14 @@ export async function login(req: Request, res: Response): Promise<void> {
       res.status(401).json({
         success: false,
         error: "Invalid email or password.",
+      });
+      return;
+    }
+
+    if (!user.password && user.authProvider === "google") {
+      res.status(400).json({
+        success: false,
+        error: "This account was registered using Google. Please sign in with Google.",
       });
       return;
     }
@@ -239,8 +247,18 @@ export async function googleLogin(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    if (!clientId) {
+    const allowedAudiences = Array.from(
+      new Set(
+        [
+          process.env.GOOGLE_AUTH_CLIENT_ID,
+          process.env.GOOGLE_CLIENT_ID,
+          "1023952748673-eevrl0u7q5jrujnm7efe8kgtcaiuvlrf.apps.googleusercontent.com",
+          "218211750568-t0u6mhvvrmddgc0s3vum8vpvfql1th21.apps.googleusercontent.com",
+        ].filter((id): id is string => Boolean(id && typeof id === "string" && id.trim()))
+      )
+    );
+
+    if (allowedAudiences.length === 0) {
       res.status(500).json({
         success: false,
         error: "Server Google Client ID is not configured.",
@@ -250,7 +268,7 @@ export async function googleLogin(req: Request, res: Response): Promise<void> {
 
     const ticket = await googleClient.verifyIdToken({
       idToken: credential,
-      audience: clientId,
+      audience: allowedAudiences,
     });
 
     const payload = ticket.getPayload();

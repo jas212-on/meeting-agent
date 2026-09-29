@@ -6,12 +6,9 @@ import { MeetingHistory } from "./components/MeetingHistory";
 import { GroupSection } from "./components/GroupSection";
 import { AskMeetingsModal } from "./components/AskMeetingsModal";
 import { MeetingDetailPage } from "./components/MeetingDetailPage";
-import { GoogleSignInButton } from "./components/GoogleSignInButton";
+import { AuthCard } from "./components/AuthCard";
 import {
   Sparkles,
-  Zap,
-  Users,
-  FileText,
   Link2,
   Clipboard,
   X,
@@ -21,7 +18,6 @@ import {
   ChevronRight,
   Trash2,
   Radio,
-  ArrowRight,
   AlertCircle,
   Terminal,
   Bot,
@@ -135,8 +131,6 @@ function App() {
     return localStorage.getItem("auth_token") ? "dashboard" : "auth";
   });
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -648,46 +642,21 @@ function App() {
     }
   };
 
-  /* ── Handle Google Sign-In Success ──────────────────────────── */
-  const handleGoogleSuccess = async (credential: string) => {
-    setAuthLoading(true);
-    setAuthError(null);
-
-    try {
-      const res = await apiFetch("/api/auth/google", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credential }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setAuthError(data.error || "Google authentication failed. Please try again.");
-        setAuthLoading(false);
-        return;
-      }
-
-      localStorage.setItem("auth_token", data.token);
-      setToken(data.token);
-      setUser(data.user);
-      setShowAuthModal(false);
-      setCurrentView("dashboard");
-      setAuthError(null);
-      setNotification(`Welcome, ${data.user.name || "User"}!`);
-    } catch (err: any) {
-      console.error("Google auth request error:", err);
-      setAuthError("Failed to connect to authentication server. Please check your network.");
-    } finally {
-      setAuthLoading(false);
-    }
+  /* ── Unified Handle Auth Success (Normal Password or Google) ─ */
+  const handleAuthSuccess = (newToken: string, newUser: UserProfile, message?: string) => {
+    localStorage.setItem("auth_token", newToken);
+    setToken(newToken);
+    setUser(newUser);
+    setShowAuthModal(false);
+    setCurrentView("dashboard");
+    setNotification(message || `Welcome, ${newUser.name || "User"}!`);
   };
 
   /* ── Continue As Guest ─────────────────────────────────────── */
   const handleContinueAsGuest = () => {
     setShowAuthModal(false);
     setCurrentView("dashboard");
-    setNotification("Continuing as Guest. You can sign in with Google anytime.");
+    setNotification("Continuing as Guest. You can sign in anytime.");
   };
 
   const handleLogout = () => {
@@ -840,7 +809,7 @@ function App() {
             <div
               className="nav-user-pill"
               onClick={() => setShowAuthModal(true)}
-              title="Click to Sign In with Google"
+              title="Click to Sign In (Email & Password or Google)"
             >
               <div className="user-avatar-circle">G</div>
               <span className="user-name-label">Guest</span>
@@ -853,60 +822,11 @@ function App() {
       {/* ── Main Layout Body ──────────────────────────────── */}
       {currentView === "auth" ? (
         <div className="auth-page-container">
-          <div className="auth-card-wrapper">
-            <div className="auth-header-block">
-              <div className="auth-logo-badge">
-                <Bot className="w-8 h-8 text-amber-400" />
-              </div>
-              <h2 className="auth-title">
-                Meet<span className="brand-accent">Minutes</span>
-                <span className="brand-tld">.ai</span>
-              </h2>
-              <p className="auth-subtitle">
-                Sign in with Google to deploy automated meeting bots, audit attendance, and access AI minutes.
-              </p>
-              <div className="auth-features-preview">
-                <span className="auth-feature-tag">
-                  <Zap className="w-3.5 h-3.5 text-amber-400" /> Live Bot
-                </span>
-                <span className="auth-feature-tag">
-                  <Users className="w-3.5 h-3.5 text-emerald-400" /> Attendance Audit
-                </span>
-                <span className="auth-feature-tag">
-                  <FileText className="w-3.5 h-3.5 text-cyan-400" /> Executive Minutes
-                </span>
-              </div>
-            </div>
-
-            <div className="p-6 flex flex-col gap-4">
-              {authError && (
-                <div className="form-error">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  <span>{authError}</span>
-                </div>
-              )}
-
-              <GoogleSignInButton
-                text="continue_with"
-                onSuccess={handleGoogleSuccess}
-                onError={(err) => setAuthError(err)}
-                disabled={authLoading}
-              />
-
-              <div className="auth-divider">
-                <span>or</span>
-              </div>
-
-              <button
-                type="button"
-                className="guest-continue-btn"
-                onClick={handleContinueAsGuest}
-              >
-                <span>Continue as Guest</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
+          <AuthCard
+            onSuccess={handleAuthSuccess}
+            onContinueAsGuest={handleContinueAsGuest}
+            apiFetch={apiFetch}
+          />
         </div>
       ) : currentView === "meeting-detail" && selectedMeeting ? (
         <main className="dashboard-content">
@@ -1150,55 +1070,14 @@ function App() {
       {/* ── Auth Modal ──────────────────────────────────── */}
       {showAuthModal && (
         <div className="modal-overlay" onClick={() => setShowAuthModal(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <button
-              className="modal-close"
-              aria-label="Close"
-              onClick={() => setShowAuthModal(false)}
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="auth-header-block pt-6 px-6 pb-2 text-center">
-              <div className="auth-logo-badge mx-auto mb-3">
-                <Bot className="w-7 h-7 text-amber-400" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-100">
-                Sign in to MeetMinutes.ai
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Access your meetings, collaboration groups, and team intelligence
-              </p>
-            </div>
-
-            <div className="p-6 flex flex-col gap-4">
-              {authError && (
-                <div className="form-error">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  <span>{authError}</span>
-                </div>
-              )}
-
-              <GoogleSignInButton
-                text="continue_with"
-                onSuccess={handleGoogleSuccess}
-                onError={(err) => setAuthError(err)}
-                disabled={authLoading}
-              />
-
-              <div className="auth-divider">
-                <span>or</span>
-              </div>
-
-              <button
-                type="button"
-                className="guest-continue-btn"
-                onClick={handleContinueAsGuest}
-              >
-                <span>Continue as Guest</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
+          <div className="modal-card auth-modal-card p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <AuthCard
+              isModal={true}
+              onClose={() => setShowAuthModal(false)}
+              onSuccess={handleAuthSuccess}
+              onContinueAsGuest={handleContinueAsGuest}
+              apiFetch={apiFetch}
+            />
           </div>
         </div>
       )}

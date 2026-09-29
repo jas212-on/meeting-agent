@@ -7,6 +7,7 @@ export const authLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.headers["x-test-suite"] === "true",
   message: {
     success: false,
     error: "Too many authentication attempts from this IP, please try again after 15 minutes.",

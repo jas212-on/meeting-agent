@@ -938,6 +938,7 @@ export function MeetingDetailPage({
                       <input
                         type="checkbox"
                         checked={item.completed}
+                        onClick={(e) => e.stopPropagation()}
                         onChange={() => onToggleActionItem && onToggleActionItem(meeting.id, item.id)}
                         style={{ width: "16px", height: "16px", accentColor: "#2563eb", marginTop: "2px", cursor: "pointer" }}
                       />

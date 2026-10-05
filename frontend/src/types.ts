@@ -73,6 +73,7 @@ export interface MeetingRecord {
   minutes: MeetingMinutes;
   transcript?: TranscriptEntry[];
   status: "completed" | "in-progress" | "scheduled";
+  category?: string;
   recording?: MeetingRecording;
 }
 

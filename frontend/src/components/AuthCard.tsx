@@ -27,7 +27,6 @@ export interface UserProfile {
 
 interface AuthCardProps {
   onSuccess: (token: string, user: UserProfile, message?: string) => void;
-  onContinueAsGuest?: () => void;
   onClose?: () => void;
   isModal?: boolean;
   apiFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -37,7 +36,6 @@ type PasswordMode = "login" | "register";
 
 export const AuthCard: React.FC<AuthCardProps> = ({
   onSuccess,
-  onContinueAsGuest,
   onClose,
   isModal = false,
   apiFetch,
@@ -414,24 +412,6 @@ export const AuthCard: React.FC<AuthCardProps> = ({
             disabled={loading}
           />
         </div>
-
-        {/* ── Guest Divider & Action ────────────────────────── */}
-        {onContinueAsGuest && (
-          <>
-            <div className="auth-divider">
-              <span>or continue without account</span>
-            </div>
-
-            <button
-              type="button"
-              className="guest-continue-btn"
-              onClick={onContinueAsGuest}
-            >
-              <span>Continue as Guest</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </>
-        )}
       </div>
     </div>
   );

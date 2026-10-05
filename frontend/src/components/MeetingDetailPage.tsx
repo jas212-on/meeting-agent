@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, Fragment } from "react";
 import type { MeetingRecord, TranscriptEntry } from "../types";
 import { generateMeetingMinutesPDF } from "../utils/pdfGenerator";
 import { generateFallbackTranscript } from "../utils/mockData";
-import { consolidateTranscripts } from "../utils/transcriptUtils";
+import { consolidateTranscripts, classifyMeetingType } from "../utils/transcriptUtils";
 import {
   ArrowLeft,
   LayoutDashboard,
@@ -329,6 +329,8 @@ export function MeetingDetailPage({
     return true;
   });
 
+  const meetingCategory = meeting.category || classifyMeetingType(meeting.title, meeting.minutes?.summary || "");
+
   return (
     <div className="meeting-page-container">
       {/* ══════════════════════════════════════════════════════
@@ -351,6 +353,13 @@ export function MeetingDetailPage({
           <h2 className="sidebar-meet-title">
             {meeting.title}
           </h2>
+
+          <div style={{ marginTop: "6px", marginBottom: "10px" }}>
+            <span id="meeting-category-badge" className="meeting-category-badge">
+              <Sparkles className="w-3 h-3 text-indigo-500" />
+              <span>{meetingCategory}</span>
+            </span>
+          </div>
 
           <div className="sidebar-meta-line">
             <Calendar className="w-3.5 h-3.5 text-slate-400" />
@@ -964,14 +973,26 @@ export function MeetingDetailPage({
            ══════════════════════════════════════════════════════ */}
         {activeSection === "attendance" && (
           <div className="canvas-body fade-in-section" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-            <div className="canvas-section-header">
-              <div className="section-icon-box">
-                <Users className="w-5 h-5" />
+            <div className="canvas-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <div className="section-icon-box">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div className="section-title-col">
+                  <h1 className="section-main-heading">Attendance Audit</h1>
+                  <p className="section-sub-heading">Detailed verification of participation, join/leave intervals, and speaking duration.</p>
+                </div>
               </div>
-              <div className="section-title-col">
-                <h1 className="section-main-heading">Attendance Audit</h1>
-                <p className="section-sub-heading">Detailed verification of participation, join/leave intervals, and speaking duration.</p>
-              </div>
+              <button
+                id="export-attendance-csv-btn"
+                className="export-attendance-btn"
+                onClick={handleExportCSV}
+                title="Export complete attendance record to CSV"
+                type="button"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export Attendance Report</span>
+              </button>
             </div>
 
             <div className="white-panel-card">
@@ -996,8 +1017,8 @@ export function MeetingDetailPage({
                       const isExpanded = expandedAttendeeId === att.id;
 
                       return (
-                        <>
-                          <tr key={att.id}>
+                        <Fragment key={att.id}>
+                          <tr>
                             <td>
                               <div className="table-row-user">
                                 <div className="table-avatar-circle">
@@ -1046,7 +1067,7 @@ export function MeetingDetailPage({
                               </td>
                             </tr>
                           )}
-                        </>
+                        </Fragment>
                       );
                     })}
                   </tbody>

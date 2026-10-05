@@ -7,6 +7,7 @@ import { GroupSection } from "./components/GroupSection";
 import { AskMeetingsModal } from "./components/AskMeetingsModal";
 import { MeetingDetailPage } from "./components/MeetingDetailPage";
 import { AuthCard } from "./components/AuthCard";
+import { ConsentModal } from "./components/ConsentModal";
 import {
   Sparkles,
   Link2,
@@ -89,6 +90,10 @@ function App() {
   const [isAskAiOpen, setIsAskAiOpen] = useState(false);
   const [askAiMeetingId, setAskAiMeetingId] = useState<string | null>(null);
 
+  // Meeting Recording Consent Modal state
+  const [isConsentModalOpen, setIsConsentModalOpen] = useState(false);
+  const [pendingMeetingUrl, setPendingMeetingUrl] = useState<string>("");
+
   const handleOpenAskAi = (targetMeetingId?: string) => {
     setAskAiMeetingId(targetMeetingId || null);
     setIsAskAiOpen(true);
@@ -125,9 +130,15 @@ function App() {
 
   // Auth states
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("auth_token"));
-  const [user, setUser] = useState<UserProfile | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(() => {
+    try {
+      const saved = localStorage.getItem("user_profile");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [currentView, setCurrentView] = useState<"dashboard" | "auth" | "meeting-detail">(() => {
-    // If auth token exists in localStorage, start on dashboard; otherwise show auth page
     return localStorage.getItem("auth_token") ? "dashboard" : "auth";
   });
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -234,10 +245,12 @@ function App() {
         if (res.ok) {
           const data = await res.json();
           setUser(data.user);
+          localStorage.setItem("user_profile", JSON.stringify(data.user));
         } else {
           setToken(null);
           setUser(null);
           localStorage.removeItem("auth_token");
+          localStorage.removeItem("user_profile");
         }
       } catch {
         // Backend offline or unreachable
@@ -388,20 +401,25 @@ function App() {
     };
   }, [connectLogs, elapsedSeconds, finalizeMeetingSession, url]);
 
-  /* ── Join meeting ─────────────────────────────────────────── */
-  const handleJoin = async (targetUrl?: string | unknown) => {
+  /* ── Request meeting join (prompts Consent Modal) ─────────── */
+  const handleJoin = (targetUrl?: string | unknown) => {
     const meetingUrl = (typeof targetUrl === "string" ? targetUrl : url).trim();
     if (!MEET_RE.test(meetingUrl) || status !== "idle") return;
     if (typeof targetUrl === "string") {
       setUrl(targetUrl.trim());
     }
+    setPendingMeetingUrl(meetingUrl);
+    setIsConsentModalOpen(true);
+  };
+
+  /* ── Execute meeting session after user grants consent ─────── */
+  const executeJoin = async (meetingUrl: string, autoRecordScreen: boolean = false) => {
     setError(null);
     setLogs([]);
     setLiveTranscripts([]);
     currentMeetingUrlRef.current = meetingUrl;
     activeMeetingStartTimeRef.current = Date.now();
     setElapsedSeconds(0);
-
 
     // If backend is online, invoke real endpoint
     if (isBackendOnline) {
@@ -422,24 +440,46 @@ function App() {
           activeMeetingStartTimeRef.current = null;
         } else {
           setStatus("joining");
+          if (autoRecordScreen) {
+            setTimeout(() => {
+              handleToggleScreenRecording();
+            }, 2500);
+          }
         }
       } catch {
         // Fallback to simulation if backend drops
-        startSimulatedSession(meetingUrl);
+        startSimulatedSession(meetingUrl, autoRecordScreen);
       }
     } else {
       // Offline / Demo Mode: simulate instant join
-      startSimulatedSession(meetingUrl);
+      startSimulatedSession(meetingUrl, autoRecordScreen);
     }
   };
 
+  const handleConsentConfirm = (options: { recordScreen: boolean }) => {
+    const meetingToJoin = pendingMeetingUrl || url;
+    setIsConsentModalOpen(false);
+    setPendingMeetingUrl("");
+    executeJoin(meetingToJoin, options.recordScreen);
+  };
+
+  const handleConsentCancel = () => {
+    setIsConsentModalOpen(false);
+    setPendingMeetingUrl("");
+  };
+
   /* ── Simulated meeting session (for local preview/demo) ────── */
-  const startSimulatedSession = (meetingUrl: string) => {
+  const startSimulatedSession = (meetingUrl: string, autoRecordScreen: boolean = false) => {
     setStatus("joining");
     setLogs([
       `[demo-agent] Initiating simulated meeting bot for ${meetingUrl}`,
       "[demo-agent] Launching headless browser environment…",
     ]);
+
+    if (autoRecordScreen) {
+      setIsScreenRecording(true);
+      setRecordingSeconds(0);
+    }
 
     setTimeout(() => {
       setStatus("running");
@@ -645,6 +685,7 @@ function App() {
   /* ── Unified Handle Auth Success (Normal Password or Google) ─ */
   const handleAuthSuccess = (newToken: string, newUser: UserProfile, message?: string) => {
     localStorage.setItem("auth_token", newToken);
+    localStorage.setItem("user_profile", JSON.stringify(newUser));
     setToken(newToken);
     setUser(newUser);
     setShowAuthModal(false);
@@ -652,15 +693,10 @@ function App() {
     setNotification(message || `Welcome, ${newUser.name || "User"}!`);
   };
 
-  /* ── Continue As Guest ─────────────────────────────────────── */
-  const handleContinueAsGuest = () => {
-    setShowAuthModal(false);
-    setCurrentView("dashboard");
-    setNotification("Continuing as Guest. You can sign in anytime.");
-  };
 
   const handleLogout = () => {
     localStorage.removeItem("auth_token");
+    localStorage.removeItem("user_profile");
     setToken(null);
     setUser(null);
     setCurrentView("auth");
@@ -811,8 +847,8 @@ function App() {
               onClick={() => setShowAuthModal(true)}
               title="Click to Sign In (Email & Password or Google)"
             >
-              <div className="user-avatar-circle">G</div>
-              <span className="user-name-label">Guest</span>
+              <div className="user-avatar-circle">?</div>
+              <span className="user-name-label">Sign In</span>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
             </div>
           )}
@@ -824,7 +860,6 @@ function App() {
         <div className="auth-page-container">
           <AuthCard
             onSuccess={handleAuthSuccess}
-            onContinueAsGuest={handleContinueAsGuest}
             apiFetch={apiFetch}
           />
         </div>
@@ -1067,6 +1102,14 @@ function App() {
         initialMeetingId={askAiMeetingId}
       />
 
+      {/* ── Meeting Recording Consent Modal ──────────────── */}
+      <ConsentModal
+        isOpen={isConsentModalOpen}
+        meetingUrl={pendingMeetingUrl || url}
+        onClose={handleConsentCancel}
+        onConfirm={handleConsentConfirm}
+      />
+
       {/* ── Auth Modal ──────────────────────────────────── */}
       {showAuthModal && (
         <div className="modal-overlay" onClick={() => setShowAuthModal(false)}>
@@ -1075,7 +1118,6 @@ function App() {
               isModal={true}
               onClose={() => setShowAuthModal(false)}
               onSuccess={handleAuthSuccess}
-              onContinueAsGuest={handleContinueAsGuest}
               apiFetch={apiFetch}
             />
           </div>

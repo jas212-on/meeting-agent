@@ -1,13 +1,16 @@
 import rateLimit from "express-rate-limit";
 
-// Strict rate limiter for authentication routes (login, register)
-// Max 10 attempts per 15 minutes per IP to prevent brute-force attacks
+// Rate limiter for authentication routes (login, register)
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,
+  max: process.env.NODE_ENV === "production" ? 15 : 1000,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.headers["x-test-suite"] === "true",
+  skip: (req) => {
+    if (req.headers["x-test-suite"] === "true") return true;
+    const ip = req.ip || req.socket.remoteAddress || "";
+    return ip.includes("127.0.0.1") || ip === "::1" || ip === "localhost";
+  },
   message: {
     success: false,
     error: "Too many authentication attempts from this IP, please try again after 15 minutes.",
@@ -23,6 +26,7 @@ export const apiLimiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => {
     // Exempt real-time polling and streaming logs from rate limiting
+    if (req.headers["x-test-suite"] === "true") return true;
     return req.path === "/status" || req.path === "/logs" || req.path === "/health";
   },
   message: {

@@ -40,10 +40,10 @@ export function MeetingHistory({
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
     return (
-      m.id.toLowerCase().includes(q) ||
-      m.title.toLowerCase().includes(q) ||
-      m.date.toLowerCase().includes(q) ||
-      m.attendees.some((a) => a.name.toLowerCase().includes(q))
+      (m.id?.toLowerCase() || "").includes(q) ||
+      (m.title?.toLowerCase() || "").includes(q) ||
+      (m.date?.toLowerCase() || "").includes(q) ||
+      (m.attendees || []).some((a) => (a?.name?.toLowerCase() || "").includes(q))
     );
   });
 

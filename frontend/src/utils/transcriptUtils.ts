@@ -75,3 +75,38 @@ export function consolidateTranscripts(entries: TranscriptEntry[]): TranscriptEn
 
   return consolidated;
 }
+
+export const SUPPORTED_MEETING_CATEGORIES = [
+  "Engineering Sync",
+  "Sprint Planning",
+  "Architecture Review",
+  "Product & Strategy Review",
+  "Client Meeting",
+  "General Discussion",
+] as const;
+
+/**
+ * Classifies a meeting into a supported category based on its title and conversation context / summary.
+ */
+export function classifyMeetingType(title: string, dialogueOrSummary: string = ""): string {
+  const combined = `${title} ${dialogueOrSummary}`.toLowerCase();
+  if (
+    combined.includes("architecture") ||
+    combined.includes("infrastructure") ||
+    combined.includes("webrtc") ||
+    combined.includes("engineer") ||
+    combined.includes("sync")
+  ) {
+    return "Engineering Sync";
+  }
+  if (combined.includes("sprint") || combined.includes("scrum") || combined.includes("backlog")) {
+    return "Sprint Planning";
+  }
+  if (combined.includes("product") || combined.includes("design") || combined.includes("ux") || combined.includes("roadmap")) {
+    return "Product & Strategy Review";
+  }
+  if (combined.includes("client") || combined.includes("customer") || combined.includes("stakeholder")) {
+    return "Client Meeting";
+  }
+  return "General Discussion";
+}

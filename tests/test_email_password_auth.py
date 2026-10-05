@@ -71,13 +71,13 @@ class TestEmailPasswordBrowserAuth:
         """Verify typing an incorrect password shows server rejection in browser."""
         email_input = driver.find_element(By.ID, "auth-email")
         email_input.clear()
-        email_input.send_keys("registered_user@example.com")
+        email_input.send_keys("jason@gmail.com")
         time.sleep(0.8)
 
         # Type wrong password
         pwd_input = driver.find_element(By.ID, "auth-password")
         pwd_input.clear()
-        pwd_input.send_keys("WrongPassword123!")
+        pwd_input.send_keys("987654")
         time.sleep(0.8)
 
         submit_btn = driver.find_element(By.CLASS_NAME, "auth-primary-submit-btn")
@@ -176,3 +176,35 @@ class TestEmailPasswordBrowserAuth:
             assert user_name in toast[0].text or "Welcome" in toast[0].text
 
         time.sleep(2.0)
+
+    def test_06_valid_login_with_credentials(self, driver):
+        """Verify successful user login using valid credentials (jason@gmail.com / 123456) transitions to dashboard."""
+        email_input = driver.find_element(By.ID, "auth-email")
+        email_input.clear()
+        email_input.send_keys("jason@gmail.com")
+        time.sleep(0.8)
+
+        pwd_input = driver.find_element(By.ID, "auth-password")
+        pwd_input.clear()
+        pwd_input.send_keys("123456")
+        time.sleep(0.8)
+
+        # Click blue sign-in button
+        submit_btn = driver.find_element(By.CLASS_NAME, "auth-primary-submit-btn")
+        submit_btn.click()
+
+        # Wait for redirect to dashboard
+        meeting_input = self.wait.until(EC.visibility_of_element_located((By.ID, "meeting-url")))
+        assert meeting_input.is_displayed(), "User should be redirected to dashboard upon successful login"
+
+        # Verify auth token is stored in localStorage
+        token = driver.execute_script("return localStorage.getItem('auth_token');")
+        assert token is not None and len(token) > 0, "Auth token should be stored in localStorage"
+
+        # Verify user name in navbar or welcome toast
+        user_labels = driver.find_elements(By.CLASS_NAME, "user-name-label")
+        if user_labels:
+            assert "jason" in user_labels[0].text.lower(), f"Expected 'Jason' in navbar, got {user_labels[0].text}"
+
+        time.sleep(1.5)
+

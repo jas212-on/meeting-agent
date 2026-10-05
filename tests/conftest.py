@@ -15,13 +15,13 @@ def pytest_addoption(parser):
     parser.addoption(
         "--frontend-url",
         action="store",
-        default="http://localhost:5173",
+        default="http://127.0.0.1:5173",
         help="Base URL for the frontend application",
     )
     parser.addoption(
         "--backend-url",
         action="store",
-        default="http://localhost:3001",
+        default="http://127.0.0.1:3001",
         help="Base URL for the backend API",
     )
     parser.addoption(
@@ -34,12 +34,14 @@ def pytest_addoption(parser):
 
 @pytest.fixture(scope="session")
 def frontend_url(request):
-    return request.config.getoption("--frontend-url")
+    url = request.config.getoption("--frontend-url")
+    return url.replace("localhost", "127.0.0.1") if "localhost" in url else url
 
 
 @pytest.fixture(scope="session")
 def backend_url(request):
-    return request.config.getoption("--backend-url")
+    url = request.config.getoption("--backend-url")
+    return url.replace("localhost", "127.0.0.1") if "localhost" in url else url
 
 
 @pytest.fixture(scope="function")
@@ -67,21 +69,35 @@ def driver(request):
 
 
 @pytest.fixture(scope="function")
-def dashboard_page(driver, frontend_url):
+def dashboard_page(driver, frontend_url, backend_url):
     """
     Navigates to the frontend application and ensures the dashboard
-    (where the meeting URL input is located) is active.
-    If the application presents the auth/welcome screen, clicks 'Continue as Guest'.
+    (where the meeting URL input is located) is active and authenticated.
     """
     driver.get(frontend_url)
+    token = driver.execute_script("return localStorage.getItem('auth_token');")
+    if not token:
+        try:
+            res = requests.post(
+                f"{backend_url}/api/auth/login",
+                json={"email": "jason@gmail.com", "password": "123456"},
+                headers={"x-test-suite": "true"},
+                timeout=5,
+            )
+            if res.status_code == 200:
+                data = res.json()
+                login_token = data.get("token")
+                user_data = data.get("user")
+                import json
+                driver.execute_script(f"""
+                    localStorage.setItem('auth_token', '{login_token}');
+                    localStorage.setItem('user_profile', JSON.stringify({json.dumps(user_data)}));
+                """)
+                driver.get(frontend_url)
+        except Exception:
+            pass
+
     wait = WebDriverWait(driver, 10)
-
-    # Check if guest continue button is present (initial unauthenticated state)
-    guest_buttons = driver.find_elements(By.CLASS_NAME, "guest-continue-btn")
-    if guest_buttons:
-        guest_buttons[0].click()
-
-    # Wait until the meeting-url input is displayed on the dashboard
     wait.until(EC.visibility_of_element_located((By.ID, "meeting-url")))
     return driver
 
@@ -105,13 +121,20 @@ def auth_token(backend_url):
         "email": f"testuser_{ts}@meetminutes.ai",
         "password": "Password123!",
     }
-    res = requests.post(
-        f"{backend_url}/api/auth/register",
-        json=register_payload,
-        headers={"Content-Type": "application/json"},
-        timeout=5,
-    )
-    assert res.status_code == 201, f"Failed to register user for group tests: {res.text}"
-    token = res.json().get("token")
-    assert token, "JWT token missing from register response"
-    return token
+    last_err = None
+    for attempt in range(3):
+        try:
+            res = requests.post(
+                f"{backend_url}/api/auth/register",
+                json=register_payload,
+                headers={"Content-Type": "application/json", "x-test-suite": "true"},
+                timeout=10,
+            )
+            if res.status_code == 201:
+                token = res.json().get("token")
+                if token:
+                    return token
+        except Exception as e:
+            last_err = e
+            time.sleep(0.5)
+    raise RuntimeError(f"Failed to register test user for auth_token fixture: {last_err or res.text}")

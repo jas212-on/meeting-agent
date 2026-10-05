@@ -205,6 +205,7 @@ export async function updateMeeting(req: AuthRequest, res: Response): Promise<vo
       "status",
       "attendees",
       "minutes",
+      "transcript",
     ];
 
     for (const key of allowedUpdates) {

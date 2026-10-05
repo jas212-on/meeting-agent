@@ -159,6 +159,19 @@ export async function createGroup(req: AuthRequest, res: Response): Promise<void
 
     const currentUserId = req.user._id;
 
+    // Check for duplicate group name for this admin (WB-05: Decision Coverage -> HTTP 409 Conflict)
+    const existingGroup = await Group.findOne({
+      name: { $regex: new RegExp(`^${name.trim()}$`, "i") },
+      admin: currentUserId,
+    });
+    if (existingGroup) {
+      res.status(409).json({
+        success: false,
+        error: "A group with this name already exists",
+      });
+      return;
+    }
+
     // Validate and clean memberIds
     let validMembers: mongoose.Types.ObjectId[] = [];
     if (Array.isArray(memberIds)) {

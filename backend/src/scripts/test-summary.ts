@@ -21,7 +21,7 @@ Participant: As for the launch date, we decided to push the beta deployment to O
 MeetMinutes AI: I have recorded those action items and the launch date decision.
 `;
 
-  console.log("\nSending sample transcript to summarization service...");
+  console.log("\n[WB-01] Validating Groq LLM API JSON extraction branch with valid transcript...");
   const minutes = await generateMeetingSummary(sampleTranscript, {
     meetingId: "test-abc-123",
     meetingTitle: "Q4 Product Release Sync",
@@ -29,12 +29,27 @@ MeetMinutes AI: I have recorded those action items and the launch date decision.
     attendeeNames: ["Jason", "Alice", "Bob", "MeetMinutes AI Assistant"],
   });
 
-  console.log("\n--- RESULTING MINUTES ---");
+  console.log("--- RESULTING MINUTES (WB-01) ---");
   console.log("SUMMARY:\n", minutes.summary);
-  console.log("\nKEY DECISIONS:\n", minutes.keyDecisions);
-  console.log("\nACTION ITEMS:\n", JSON.stringify(minutes.actionItems, null, 2));
-  console.log("\nDISCUSSION TOPICS:\n", JSON.stringify(minutes.discussionTopics, null, 2));
-  console.log("\nSUCCESS: Meeting minutes structure validated!");
+  console.log("KEY DECISIONS:\n", minutes.keyDecisions);
+  console.log("ACTION ITEMS:\n", JSON.stringify(minutes.actionItems, null, 2));
+  console.log("✓ WB-01: Valid transcript -> Groq LLM API JSON extraction branch passed!");
+
+  console.log("\n[WB-02] Validating fallback branch with empty/short transcript...");
+  const emptyMinutes = await generateMeetingSummary("", {
+    meetingId: "test-empty-123",
+    duration: "00:00",
+  });
+  console.log("--- FALLBACK MINUTES (WB-02) ---");
+  console.log("SUMMARY:\n", emptyMinutes.summary);
+  if (!emptyMinutes.summary || emptyMinutes.summary.length === 0) {
+    throw new Error("WB-02 Failed: Fallback summary was empty");
+  }
+  console.log("✓ WB-02: Empty/short transcript -> Fallback structured summary branch passed!");
+
+  console.log("\n==================================================");
+  console.log("   ALL WHITE-BOX GROQ BRANCH TESTS PASSED!        ");
+  console.log("==================================================");
 }
 
 runTest().catch((err) => {

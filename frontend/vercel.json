@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://datebook-tribunal-smite.ngrok-free.dev/api/:path*"
+    },
+    {
+      "source": "/recordings/:path*",
+      "destination": "https://datebook-tribunal-smite.ngrok-free.dev/recordings/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
